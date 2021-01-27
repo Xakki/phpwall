@@ -1,0 +1,25 @@
+{
+  "name": "xakki/phpwall",
+  "version": "0.1.0",
+  "description": "Protect web",
+  "type": "library",
+  "minimum-stability": "dev",
+  "license": "LGPL-2.1",
+  "authors": [
+    {
+      "name": "Xakki",
+      "email": "xakki@ya.ru"
+    }
+  ],
+  "support": {
+    "issues": "https://github.com/xakki/phpwall/issues"
+  },
+  "require": {
+    "php": ">=5.6",
+    "ext-memcached": "*",
+    "ext-json": "*"
+  },
+  "config": {
+    "preferred-install": "dist"
+  }
+}
