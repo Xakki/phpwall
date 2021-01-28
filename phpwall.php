@@ -117,7 +117,7 @@ class PhpWall
         self::TRUST_DEFAULT => '-',
         self::TRUST_CAPTCHA => 'CAPTCHA',
     ];
-    private $lang = 'ru';
+    private $lang = 'en';
     private $locale = [
         'ru' => [
             'Home' => 'На главную',
@@ -145,12 +145,12 @@ class PhpWall
                 }
             }
         }
-        if (empty($config['lang'])) {
-            $this->lang = (strpos($_SERVER['HTTP_ACCEPT_LANGUAGE'], 'ru') ? 'ru' : 'en');
+        if (empty($config['lang']) && !empty($_SERVER['HTTP_ACCEPT_LANGUAGE']) && strpos($_SERVER['HTTP_ACCEPT_LANGUAGE'], 'ru')) {
+            $this->lang = 'ru';
         }
         try {
             $this->main();
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             if ($this->debug) {
                 echo '<pre>' . $e->__toString() . '</pre>';
                 exit('ERROR');
@@ -162,6 +162,7 @@ class PhpWall
     {
 
         if (isset($_SERVER['argv'])) {
+            // TODO
             //            if ($_SERVER['argv'][1] === 'phpWallTask')
             //                $this->phpWallTask();
         } else {
@@ -268,7 +269,7 @@ class PhpWall
 
     private function selectAllSql($table, array $where, $select = '*')
     {
-        return $this->selectSql($table, $where, $select)->fetchAll(PDO::FETCH_ASSOC);
+        return $this->selectSql($table, $where, $select)->fetchAll(\PDO::FETCH_ASSOC);
     }
 
     private function selectSql($table, array $where, $select = '*', $forUpdate = false, $flag = false)
@@ -327,17 +328,17 @@ class PhpWall
     }
 
     /**
-     * @return PDO
+     * @return \PDO
      */
     private function pdo()
     {
         if (!$this->_PDO) {
-            $this->_PDO = new PDO($this->dbPdo['engine'] . ':host=' . $this->dbPdo['host'] . ';port=' . $this->dbPdo['port'] . ';dbname=' . $this->dbPdo['dbname'], $this->dbPdo['username'], $this->dbPdo['password'], $this->dbPdo['options']);
+            $this->_PDO = new \PDO($this->dbPdo['engine'] . ':host=' . $this->dbPdo['host'] . ';port=' . $this->dbPdo['port'] . ';dbname=' . $this->dbPdo['dbname'], $this->dbPdo['username'], $this->dbPdo['password'], $this->dbPdo['options']);
             if (!$this->_PDO) {
                 if (!empty($_GET[$this->secretRequest])) {
                     echo '<p>Pdo cant init</p>';
                 } else {
-                    throw new Exception('Pdo cant init');
+                    throw new \Exception('Pdo cant init');
                 }
             }
         }
@@ -388,7 +389,7 @@ class PhpWall
         } elseif (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
             return current(unpack("A16", inet_pton($ip)));
         }
-        throw new Exception("Please supply a valid IPv4 or IPv6 address");
+        throw new \Exception("Please supply a valid IPv4 or IPv6 address");
     }
 
     // TODO
@@ -399,7 +400,7 @@ class PhpWall
     // 'fr' - кол-во плохих запросов за сессию
 
     /**
-     * @return Memcached|null
+     * @return \Memcached|null
      */
     private function memcache($restore = false)
     {
@@ -411,7 +412,7 @@ class PhpWall
             } else
                 $mc_load = true;
             if ($mc_load) {
-                $this->_MEMCACHE = new Memcached;
+                $this->_MEMCACHE = new \Memcached;
                 if (!$this->_MEMCACHE->addServer($this->memcache[0], $this->memcache[1])) {
                     trigger_error('Memcached is down', E_USER_WARNING);
                     return false;
@@ -439,7 +440,7 @@ class PhpWall
                     't' => $r['update'],
                     'fr' => $r['request_session'],
                 ], $r['update'] + $this->bunTimeout);
-            } catch (Exception $e) {
+            } catch (\Exception $e) {
             }
         }
     }
@@ -489,7 +490,7 @@ class PhpWall
 
     /**
      * Обновление по заблокированному IP
-     * @throws Exception
+     * @throws \Exception
      */
     private function updateBadIp()
     {
@@ -500,7 +501,7 @@ class PhpWall
             $this->memcache()->set($this->getKeyIp(), $this->_memcacheIpInfo, time() + $this->bunTimeout);
         } else {
             if (!$this->pdo()->beginTransaction()) {
-                throw new Exception('Cant begin transaction');
+                throw new \Exception('Cant begin transaction');
             }
 
             $binIp = $this->dtr_pton($this->_userIp);
@@ -535,7 +536,7 @@ class PhpWall
 
     private function selectOneSql($table, array $where, $select = '*')
     {
-        return $this->selectSql($table, $where, $select, true)->fetch(PDO::FETCH_ASSOC);
+        return $this->selectSql($table, $where, $select, true)->fetch(\PDO::FETCH_ASSOC);
     }
 
     private function updateSql($table, array $where, array $bind)
@@ -674,12 +675,12 @@ class PhpWall
      * @param $rule
      * @param $word
      * @return bool|void
-     * @throws Exception
+     * @throws \Exception
      */
     private function addBadIp($rule, $word)
     {
         if (!$this->pdo()->beginTransaction()) {
-            throw new Exception('Cant begin transaction');
+            throw new \Exception('Cant begin transaction');
         }
         $binIp = $this->dtr_pton($this->_userIp);
         $data = $this->selectOneSql($this->dbTableMain, ['ip' => $binIp]);
