@@ -1,6 +1,6 @@
 {
   "name": "xakki/phpwall",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Protect web",
   "type": "library",
   "minimum-stability": "dev",
@@ -24,5 +24,10 @@
   },
   "config": {
     "preferred-install": "dist"
+  },
+  "autoload": {
+    "psr-4": {
+      "xakki\\phpwall\\": "/"
+    }
   }
 }
