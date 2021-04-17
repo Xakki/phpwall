@@ -169,7 +169,7 @@ class PhpWall
         }
     }
 
-    protected function log($level, $message, array $context = []): void
+    protected function log($level, $message, array $context = [])
     {
         if (!$this->Logger) return;
         $this->Logger->log($level, $message, $context);
