@@ -1,4 +1,5 @@
 <?php
+
 namespace xakki\phpwall;
 /*
    PhpWall- scan protect
@@ -59,31 +60,32 @@ class PhpWall
 
     private $check_url_keyword = [
         'eval(',
-        '/sqlite',
+        'sqlite',
         'manager',
         'phpmyadmin',
         '/setup',
         '/admin',
-        '/myadmin',
+        'myadmin',
         '/pma',
-        '/phpma',
-        '/phpadmin',
-        '/mysqladmin',
-        '/wp-login',
-        '/wp-content',
-        '/administrator',
-        '/wp-admin',
-        '/wp-includes',
+        'phpma',
+        'phpadmin',
+        'mysqladmin',
+        'wp-login',
+        'wp-content',
+        'administrator',
+        'wp-admin',
+        'wp-includes',
         'wordpress',
         'mod_stats.xml',
         'mscms',
         '.ssh',
-        '/xmlrpc.php',
+        '.git',
+        'xmlrpc.php',
         'wallet.dat',
         '.bash_history',
         'webalizer',
         '/wstat',
-        '/fckeditor/editor/',
+        'fckeditor/editor',
     ];
     private $check_url_keyword_exclude = [];
     private $check_ua_keyword = [
@@ -133,9 +135,14 @@ class PhpWall
     private $evilFr = 20; // Если начинают долбить запросами, то только с мемкэшем работаем
     private $_MEMCACHE;
     private $_PDO;
+    /**
+     * @var \Psr\Log\LoggerInterface
+     */
+    private $Logger;
 
-    public function __construct($config = [])
+    public function __construct($config = [], \Psr\Log\LoggerInterface $Logger = null)
     {
+        if ($Logger) $this->Logger = $Logger;
         foreach ($config as $k => $r) {
             if (isset($this->$k)) {
                 if (is_array($this->$k)) {
@@ -151,11 +158,18 @@ class PhpWall
         try {
             $this->main();
         } catch (\Exception $e) {
+            $this->log(\Psr\Log\LogLevel::ERROR, $e);
             if ($this->debug) {
                 echo '<pre>' . $e->__toString() . '</pre>';
                 exit('ERROR');
             }
         }
+    }
+
+    protected function log($level, $message, array $context = []): void
+    {
+        if (!$this->Logger) return;
+        $this->Logger->log($level, $message, $context);
     }
 
     private function main()
@@ -198,22 +212,37 @@ class PhpWall
         $btrstr = '<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css" integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO" crossorigin="anonymous">';
         $rmKey = $this->secretRequestRemove;
         if (isset($_GET['_logip'])) {
-            $data = $this->selectAllSql($this->dbTableLog, ['ip' => $this->dtr_pton($_GET['_logip'])]);
+            $ip = $this->dtr_pton($_GET['_logip']);
+
             echo $btrstr;
             echo '<a href="?' . $this->secretRequest . '=1"><h1>PHPWALL</h1></a>';
             echo '<h2>IP Log ' . $_GET['_logip'] . '</h2>';
-            echo '<table class="table table-striped table-dark table-hover"><thead><tr><th>IP</th><th>Date</th><th>Try</th><th>rule</th><th>data</th></tr></thead><tbody></tbody>';
+
+            $data1 = $this->selectAllSql($this->dbTableMain, ['ip' => $ip]);
+            $this->printTable(array_keys($data1[0]), $data1);
+
+            $data = $this->selectAllSql($this->dbTableLog, ['ip' => $ip]);
+            $head = ['IP', 'Date', 'Try', 'rule', 'data'];
+            $rows = [];
             foreach ($data as $r) {
-                echo '<tr><td scope="row">' . $r['id'] . '</td>' . '<td>' . $r['create'] . '</td>' . '<td>' . $r['try'] . '</td>' . '<td>' . $this->typeList[$r['rule']] . '</td>' . '<td>' . $r['data'] . '</td>' . '</tr>';
+                $rows[] = [
+                    $r['id'],
+                    $r['create'],
+                    $r['try'],
+                    $this->typeList[$r['rule']],
+                    $r['data']
+                ];
             }
-            echo '</tbody></table>';
+            $this->printTable($head, $rows);
         } else {
             if (isset($_GET['_inactiveIp'])) {
+                $select = 'ip,`create`,`update`,request_total,request_session,request_bad,request_bad_days,request_bad_days_up';
                 $q = '`update` <= DATE_SUB(NOW(),INTERVAL ' . $this->bunTimeout . ' SECOND)';
             } else {
+                $select = '*';
                 $q = '`update` > DATE_SUB(NOW(),INTERVAL ' . $this->bunTimeout . ' SECOND)';
             }
-            $data = $this->selectAllSql($this->dbTableMain, [$q], '*');
+            $data = $this->selectAllSql($this->dbTableMain, [$q], $select);
 
             if (isset($_GET[$rmKey])) {
                 $ip = $_GET[$rmKey];
@@ -234,7 +263,8 @@ class PhpWall
               <a type="button" class="btn btn-secondary' . (isset($_GET['_inactiveIp']) ? '' : ' active') . '" href="?' . $this->secretRequest . '=1&tt=' . time() . '&_inactiveIp=1">Sleep</a>
             </div>';
 
-            echo '<table class="table table-striped table-hover"><thead class="thead-dark"><tr>' . '<th>IP</th><th>Date</th>' . (1 ? '<th>Expire</th>' : '') . '<th>Bun rq</th><th>Total rq</th><th>Bad rq</th><th>Bad days</th><th>Is trust</th><th>Host</th><th style="width:30%;">ua</th>' . '<th></th><th></th></tr></thead><tbody></tbody>';
+            $head = ['IP', 'Date', 'Expire', 'Bun rq', 'Total rq', 'Bad rq', 'Bad days', 'Is trust', 'Host', 'ua', '.', '.'];
+            $rows= [];
             foreach ($data as $r) {
                 $flag = false;
                 try {
@@ -243,10 +273,23 @@ class PhpWall
                 } catch (Exception $e) {
                     $r['ip'] = $e->getMessage();
                 }
-
-                echo '<tr><td>' . $r['ip'] . '</td>' . '<td style="white-space: nowrap;">' . $r['create'] . '<br/>' . $r['update'] . '</td>' . '<td>' . date('m-d H:i', $this->calculateTimeOut($r)) . '</td>' . '<td>' . $r['request_session'] . '</td>' . '<td>' . $r['request_total'] . '</td>' . '<td>' . $r['request_bad'] . '</td>' . '<td>' . $r['request_bad_days'] . '</td>' . '<td>' . (isset($this->trustList[$r['trust']]) ? $this->trustList[$r['trust']] : '') . '</td>' . '<td>' . htmlspecialchars($r['host']) . '</td>' . '<td>' . htmlspecialchars($r['ua']) . '</td>' . '<td>' . ($flag ? '<a href="?' . $this->secretRequest . '=1&tt=' . time() . '&_logip=' . $r['ip'] . '">Logs</a></td>' : '') . '<td>' . ($flag ? '<a href="?' . $this->secretRequest . '=1&tt=' . time() . '&' . $rmKey . '=' . $r['ip'] . '">X</a></td></tr>' : '');
+                $rows[] = [
+                    $r['ip'],
+                    $r['create'] . '<br/>' . $r['update'],
+                    date('m-d H:i', $this->calculateTimeOut($r)),
+                    $r['request_session'],
+                    $r['request_total'],
+                    $r['request_bad'],
+                    $r['request_bad_days'],
+                    (isset($this->trustList[$r['trust']]) ? $this->trustList[$r['trust']] : ''),
+                    (!empty($r['host']) ? htmlspecialchars($r['host']) : ''),
+                    (!empty($r['ua']) ? htmlspecialchars($r['ua']) : ''),
+                    ($flag ? '<a href="?' . $this->secretRequest . '=1&tt=' . time() . '&_logip=' . $r['ip'] . '">Logs</a>' : ''),
+                    ($flag ? '<a href="?' . $this->secretRequest . '=1&tt=' . time() . '&' . $rmKey . '=' . $r['ip'] . '">X</a>' : '')
+                ];
             }
-            echo '</tbody></table>';
+
+            $this->printTable($head, $rows);
 
 
             if ($this->memcache) {
@@ -257,7 +300,7 @@ class PhpWall
                     $ipInfo = $this->memcache()->get($this->getKeyIp());
                     if ($ipInfo) {
                         echo '<h3>IP info ' . $this->_userIp . ' <a href="?' . $this->secretRequest . '=1&tt=' . time() . '&' . $rmKey . '=' . $this->_userIp . '">X</a></h3><pre>';
-                        echo '<p>' . date('Y-m-d H:i:s', $ipInfo['t']) . ' - ' . $ipInfo['fr'] . '</p>';
+                        echo '<p>' . $ipInfo['t'] . ' - ' . $ipInfo['fr'] . '</p>';
                     }
                     echo '</pre>';
                 }
@@ -265,6 +308,23 @@ class PhpWall
         }
 
         exit('');
+    }
+
+    protected function printTable(array $head, array $rows)
+    {
+        echo '<table class="table table-striped table-hover"><thead class="thead-dark"><tr>';
+        foreach($head as $item) {
+            echo '<th>'.$item.'</th>';
+        }
+        echo '</tr></thead><tbody></tbody>';
+        foreach($rows as $row) {
+            echo '<tr>';
+            foreach($row as $i) {
+                echo '<td>'.$i.'</td>';
+            }
+            echo '</tr>';
+        }
+        echo '</tbody></table>';
     }
 
     private function selectAllSql($table, array $where, $select = '*')
@@ -291,13 +351,10 @@ class PhpWall
         if ($forUpdate) {
             $q .= ' FOR UPDATE';
         }
-
         if ($this->debug) {
-            print_r('<pre>');
-            echo $q;
-            print_r($where);
-            print_r('</pre>');
+            echo PHP_EOL . $q;
         }
+
         $stmt = $this->pdo()->prepare($q);
         $bind = [];
         foreach ($where as $k => $v) {

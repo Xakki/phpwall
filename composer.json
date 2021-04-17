@@ -20,7 +20,8 @@
     "ext-json": "*",
     "ext-pdo": "*",
     "ext-curl": "*",
-    "ext-mbstring": "*"
+    "ext-mbstring": "*",
+    "psr/log": "^1.0"
   },
   "config": {
     "preferred-install": "dist"
