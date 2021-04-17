@@ -25,6 +25,7 @@ class PhpWall
     const TRUST_CAPTCHA = 1;
     private $_userIp;
     private $_memcacheIpInfo;
+
     private $secretRequest = 'CHANGE_ME'; // special access to control
     private $secretRequestRemove = 'CHANGE_ME'; // special access to control
     private $googleCaptha = [
@@ -32,7 +33,7 @@ class PhpWall
         'sicretkey' => 'CHANGE_ME',
     ];
     private $debug = false;
-    private $try = 3;
+    private $try = 2;
     private $logMode = 1; // 0 отключен полностью; 1 - логируем только при первом обнаружении; 2 - логируем при обнаружении и любых блокировок
     private $memcache = [
         'localhost',
@@ -89,12 +90,12 @@ class PhpWall
     ];
     private $check_url_keyword_exclude = [];
     private $check_ua_keyword = [
-        'eval(',
+        'eval(', 'curl'
     ];
     private $check_ua_keyword_exclude = [];
 
     private $check_post_keyword = [
-        'eval(',
+        'eval(', 'curl'
     ];
     private $check_post_keyword_exclude = [];
 
@@ -230,7 +231,7 @@ class PhpWall
                     $r['create'],
                     $r['try'],
                     $this->typeList[$r['rule']],
-                    $r['data']
+                    $r['data'],
                 ];
             }
             $this->printTable($head, $rows);
@@ -264,7 +265,7 @@ class PhpWall
             </div>';
 
             $head = ['IP', 'Date', 'Expire', 'Bun rq', 'Total rq', 'Bad rq', 'Bad days', 'Is trust', 'Host', 'ua', '.', '.'];
-            $rows= [];
+            $rows = [];
             foreach ($data as $r) {
                 $flag = false;
                 try {
@@ -285,7 +286,7 @@ class PhpWall
                     (!empty($r['host']) ? htmlspecialchars($r['host']) : ''),
                     (!empty($r['ua']) ? htmlspecialchars($r['ua']) : ''),
                     ($flag ? '<a href="?' . $this->secretRequest . '=1&tt=' . time() . '&_logip=' . $r['ip'] . '">Logs</a>' : ''),
-                    ($flag ? '<a href="?' . $this->secretRequest . '=1&tt=' . time() . '&' . $rmKey . '=' . $r['ip'] . '">X</a>' : '')
+                    ($flag ? '<a href="?' . $this->secretRequest . '=1&tt=' . time() . '&' . $rmKey . '=' . $r['ip'] . '">X</a>' : ''),
                 ];
             }
 
@@ -313,14 +314,14 @@ class PhpWall
     protected function printTable(array $head, array $rows)
     {
         echo '<table class="table table-striped table-hover"><thead class="thead-dark"><tr>';
-        foreach($head as $item) {
-            echo '<th>'.$item.'</th>';
+        foreach ($head as $item) {
+            echo '<th>' . $item . '</th>';
         }
         echo '</tr></thead><tbody></tbody>';
-        foreach($rows as $row) {
+        foreach ($rows as $row) {
             echo '<tr>';
-            foreach($row as $i) {
-                echo '<td>'.$i.'</td>';
+            foreach ($row as $i) {
+                echo '<td>' . $i . '</td>';
             }
             echo '</tr>';
         }
@@ -778,7 +779,7 @@ class PhpWall
                 'request_bad_days_up' => date('Y-m-d'),
                 'ip' => $binIp,
                 'create' => 0,
-                'ua' => mb_substr($_SERVER['HTTP_USER_AGENT'], 0, 255),
+                'ua' => !empty($_SERVER['HTTP_USER_AGENT']) ? mb_substr($_SERVER['HTTP_USER_AGENT'], 0, 255) : '',
                 'host' => substr(gethostbyaddr($this->_userIp), -128),
                 'trust' => self::TRUST_DEFAULT,
             ];
