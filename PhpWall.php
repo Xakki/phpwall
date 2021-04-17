@@ -16,6 +16,8 @@ namespace xakki\phpwall;
 
 class PhpWall
 {
+    const VERSION = '0.1.4';
+    
     const RULE_IP = 0;
     const RULE_UA = 1;
     const RULE_POST = 2;
