@@ -13,10 +13,10 @@ $phpWallConf = [
     'dbPdo' => [
         'password' => 'passwor to databse'
     ],
-    'googleCaptha' => [
+    'googleCaptcha' => [
         'sitekey' => '...',
         'sicretkey' => '...',
     ]
 ];
-new \xakki\phpwall\PhpWall($phpWallConf);
+new \Xakki\PHPWall\PHPWall($phpWallConf);
 ```
