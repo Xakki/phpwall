@@ -1,34 +1,54 @@
 {
   "name": "xakki/phpwall",
-  "version": "0.1.5",
+  "version": "0.2.1",
   "description": "Protect web",
   "type": "library",
   "minimum-stability": "dev",
   "license": "LGPL-2.1",
   "authors": [
     {
-      "name": "Xakki",
-      "email": "xakki@ya.ru"
+      "name": "Xakki"
     }
   ],
   "support": {
     "issues": "https://github.com/xakki/phpwall/issues"
   },
   "require": {
-    "php": ">=5.6",
-    "ext-memcached": "*",
+    "php": ">=8.1",
     "ext-json": "*",
     "ext-pdo": "*",
     "ext-curl": "*",
     "ext-mbstring": "*",
-    "psr/log": "^1.0"
+    "psr/log": "^3.0"
+  },
+  "require-dev": {
+    "phpstan/phpstan": "*",
+    "squizlabs/php_codesniffer": "*",
+    "opsway/psr12-strict-coding-standard": "*",
+    "phpunit/phpunit": "^10.5"
+  },
+  "suggest": {
+    "ext-memcached": "Cache with memcached",
+    "ext-redis": "Cache with redis"
   },
   "config": {
-    "preferred-install": "dist"
+    "preferred-install": "dist",
+    "allow-plugins": {
+      "dealerdirect/phpcodesniffer-composer-installer": true
+    }
   },
   "autoload": {
     "psr-4": {
-      "xakki\\phpwall\\": "/"
+      "Xakki\\PHPWall\\": "src/",
+      "Xakki\\PHPWallTest\\": "tests/"
     }
+  },
+  "scripts": {
+    "phpstan": "APP_ENV=testing XDEBUG_MODE=off vendor/bin/phpstan analyse --memory-limit 1G -v",
+    "phpstan-clean": "XDEBUG_MODE=off vendor/bin/phpstan clear-result-cache",
+    "cs-check": "XDEBUG_MODE=off vendor/bin/phpcs",
+    "cs-summary": "XDEBUG_MODE=off vendor/bin/phpcs --report=summary",
+    "cs-fix": "XDEBUG_MODE=off vendor/bin/phpcbf",
+    "phpunit": "XDEBUG_MODE=off vendor/bin/phpunit -c phpunit.xml --no-coverage"
   }
 }
