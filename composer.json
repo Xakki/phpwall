@@ -1,6 +1,6 @@
 {
   "name": "xakki/phpwall",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Protect web",
   "type": "library",
   "minimum-stability": "dev",

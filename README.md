@@ -1,11 +1,11 @@
 # phpwall
 Protect site from scanners on PHP
-
+Get googleCaptha keys from https://www.google.com/recaptcha/admin/
 
 ```php
 $phpWallConf = [
-    'currentHost' => 'example.com',
-    'secretRequest' => 'change me',
+    'secretRequest' => 'CHANGE_ME',
+    'secretRequestRemove' => 'CHANGE_ME',
     'bunTimeout' => 86400,
     'check_post' => false,
     'check_ua' => false,
@@ -14,10 +14,9 @@ $phpWallConf = [
         'password' => 'passwor to databse'
     ],
     'googleCaptha' => [
-        'domain' => 'example.com',
         'sitekey' => '...',
         'sicretkey' => '...',
     ]
 ];
-new PhpWall($phpWallConf);
+new \xakki\phpwall\PhpWall($phpWallConf);
 ```

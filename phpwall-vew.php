@@ -6,7 +6,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-    <title><?= $this->locale('Attention'); ?></title>
+    <title>PhpWall <?=\xakki\phpwall\PhpWall::VERSION?> - <?= $this->locale('Attention'); ?></title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <meta name="description" content="">
@@ -120,7 +120,9 @@
         }
 
     </style>
-    <script src='https://www.google.com/recaptcha/api.js'></script>
+    <?php if(!empty($this->googleCaptha['sitekey'])):?>
+        <script src='https://www.google.com/recaptcha/api.js'></script>
+    <?php endif; ?>
 </head>
 
 <body class="text-center">
@@ -139,11 +141,15 @@
         <h1 class="cover-heading"><?= $this->locale('Attention'); ?>!</h1>
         <p class="lead"><?= $this->locale('Your IP [{$0}] has been blocked for suspicious activity.', [$_SERVER['REMOTE_ADDR']]); ?></p>
         <p><?= $this->locale('If you want to remove the lock, then go check the captcha.'); ?></p>
+        
+        <?php if(!empty($this->googleCaptha['sitekey'])):?>
         <form method="POST">
             <input type="hidden" name="unbunme" value="please"/>
             <div class="g-recaptcha" data-sitekey="<?= $this->googleCaptha['sitekey'] ?>" style="display: inline-block;"></div>
             <div><input type="submit" value="<?= $this->locale('Unbun'); ?>" class="btn btn-lg btn-secondary"></div>
         </form>
+        <?php endif; ?>
+        
         <?php if ($this->errorMessage): ?><br/>
             <p class="alert alert-danger"><?= $this->locale($this->errorMessage) ?></p>
         <?php endif; ?>

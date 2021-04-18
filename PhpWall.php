@@ -16,7 +16,7 @@ namespace xakki\phpwall;
 
 class PhpWall
 {
-    const VERSION = '0.1.4';
+    const VERSION = '0.1.5';
     
     const RULE_IP = 0;
     const RULE_UA = 1;
@@ -30,9 +30,9 @@ class PhpWall
 
     private $secretRequest = 'CHANGE_ME'; // special access to control
     private $secretRequestRemove = 'CHANGE_ME'; // special access to control
-    private $googleCaptha = [
-        'sitekey' => 'CHANGE_ME',
-        'sicretkey' => 'CHANGE_ME',
+    private $googleCaptha = [// get key on https://www.google.com/recaptcha/admin/
+        'sitekey' => '',//CHANGE_ME 
+        'sicretkey' => '', //CHANGE_ME
     ];
     private $debug = false;
     private $try = 2;
@@ -187,6 +187,8 @@ class PhpWall
                 $this->_userIp = $_SERVER['REMOTE_ADDR'];
 
             if (!empty($_GET[$this->secretRequest])) {
+                if ($this->secretRequest == 'CHANGE_ME')
+                    exit('CHANGE the secretRequest');
                 $this->controlPanel();
             }
 
@@ -248,6 +250,7 @@ class PhpWall
             $data = $this->selectAllSql($this->dbTableMain, [$q], $select);
 
             if (isset($_GET[$rmKey])) {
+                if ($rmKey == 'CHANGE_ME') exit('Change secretRequestRemove');
                 $ip = $_GET[$rmKey];
                 $this->memcache()->delete('phpWall-' . $ip);
 
