@@ -16,10 +16,9 @@ class View
     ];
     protected string $secretRequest;
     protected string $secretRequestRemove;
-    protected int $bunTimeout;
-    protected Connection $conn;
+    protected Db $conn;
     protected Cache $cache;
-    private array $viewMainHead = ['IP', 'Date', 'Expire', 'Bun rq', 'Total rq', 'Bad rq', 'Bad days', 'Is trust', 'Host', 'ua', '.', '.'];
+
     private array $trustList = [
         PHPWall::TRUST_SEARCH => 'Search',
         PHPWall::TRUST_DEFAULT => '-',
@@ -28,78 +27,105 @@ class View
     ];
     private PHPWall $owner;
 
-    public function __construct(PHPWall $owner, Connection $conn, Cache $cache, string $secretRequest, string $secretRequestRemove, int $bunTimeout)
+    public function __construct(PHPWall $owner, Db $conn, Cache $cache, string $secretRequest, string $secretRequestRemove)
     {
         $this->owner = $owner;
         $this->conn = $conn;
         $this->cache = $cache;
         $this->secretRequest = $secretRequest;
         $this->secretRequestRemove = $secretRequestRemove;
-        $this->bunTimeout = $bunTimeout;
 
         $btrstr = '<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css" integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO" crossorigin="anonymous">';
         $rmKey = $this->secretRequestRemove;
         if (isset($_GET['_logip'])) {
-            $ip = Tools::convertIp2Number($_GET['_logip']);
-
             echo $btrstr;
             echo '<a href="?' . $this->secretRequest . '=1"><h1>PHPWALL</h1></a>';
-            echo '<h2>IP Log ' . $_GET['_logip'] . '</h2>';
 
-            $data1 = $this->conn->selectAllSql(PHPWall::TABLE_MAIN, ['ip' => $ip]);
-            $this->printTable($this->viewMainHead, $this->prepareViewMainData($data1));
+            $this->printIpInfo($_GET['_logip'], $rmKey);
 
-            $data = $this->conn->selectAllSql(PHPWall::TABLE_LOG, ['ip' => $ip]);
-            $head = ['id', 'Date', 'Try', 'rule', 'data'];
+            $dataMain = $this->conn->getMainByIp($_GET['_logip']);
+            $this->printTable($this->prepareViewMainData([$dataMain]));
+
+            $data = $this->conn->getAllLogByIp($_GET['_logip']);
             $rows = [];
             foreach ($data as $r) {
                 $rows[] = [
-                    $r['id'],
-                    $r['create'],
-                    $r['try'],
-                    self::TYPE_LIST[$r['rule']],
-                    $r['data'],
+                    'id' => $r['id'],
+                    'Date' => $r['create'],
+                    'Try' => $r['try'],
+                    'rule' => self::TYPE_LIST[$r['rule']],
+                    'data' => $r['data'],
                 ];
             }
-            $this->printTable($head, $rows);
+            $this->printTable($rows);
         } else {
-            $data = $this->owner->getDataControlView(isset($_GET['_inactiveIp']));
+            $baseUrl = '?' . $this->secretRequest . '=1&tt=' . time() . '&_tab=';
+            $tab = $_GET['_tab'] ?? 'active';
+            $tabList = [
+                'active' => 'Active',
+                'slep' => 'Sleep',
+                'most' => 'Most',
+            ];
+
+            switch ($tab) {
+                case 'most';
+                    $data = $this->conn->getDataControlViewMost();
+                    break;
+
+                case 'slep';
+                    $data = $this->conn->getDataControlViewSleep();
+                    break;
+
+                default;
+                    $data = $this->conn->getDataControlViewActive();
+            }
 
             if (isset($_GET[$rmKey])) {
                 if ($rmKey == 'CHANGE_ME') {
                     exit('Change secretRequestRemove');
                 }
-                $this->owner->setTrustIp($_GET[$rmKey], PHPWall::TRUST_CONTROL);
+                $this->owner->setIpIsTrust($_GET[$rmKey], PHPWall::TRUST_CONTROL);
                 header('Location: ' . $_SERVER['HTTP_REFERER'], true, 301);
                 exit();
             }
+
             echo $btrstr;
             echo '<a href="?' . $this->secretRequest . '=1"><h1>PHPWALL</h1></a>';
-            echo '<p>Timeout for unblock: ' . $this->bunTimeout . 'sec.</p>';
-            echo '<p>Count ip: ' . count($data) . '.</p>';
 
-            echo '<div class="btn-group" role="group">
-              <a type="button" class="btn btn-secondary' . (isset($_GET['_inactiveIp']) ? ' active' : '') . '" href="?' . $this->secretRequest . '=1&tt=' . time() . '">Active</a>
-              <a type="button" class="btn btn-secondary' . (isset($_GET['_inactiveIp']) ? '' : ' active') . '" href="?' . $this->secretRequest . '=1&tt=' . time() . '&_inactiveIp=1">Sleep</a>
-            </div>';
+            $this->printIpInfo($this->owner->getUserIp(), $rmKey);
 
-            $this->printTable($this->viewMainHead, $this->prepareViewMainData($data));
-
-            $ipInfo = $this->owner->getIpInfo();
-            if ($ipInfo) {
-                echo '<h3>IP info ' . $ipInfo['ip'] . ' <a href="?' . $this->secretRequest . '=1&tt=' . time() . '&' . $rmKey . '=' . $ipInfo['ip'] . '">X</a></h3><pre>';
-                echo '<p>' . date('Y-m-d H:i:s', $ipInfo['time']) . ' - ' . $ipInfo['cnt'] . '</p>';
+            echo '<div class="btn-group" role="group">';
+            foreach ($tabList as $tK => $tR) {
+                echo '<a type="button" class="btn btn-secondary ' . $tK . '" href="' . $baseUrl . $tK . '">'
+                    . $tR . ($tK == $tab ? ' (' . count($data) . ')' : '') . '</a>';
             }
-            echo '</pre>';
+            echo '</div>';
+
+            $this->printTable($this->prepareViewMainData($data));
         }
 
         exit('');
     }
 
-    protected function printTable(array $head, array $rows): void
+    protected function printIpInfo(string $ip, string $rmKey): void
+    {
+        $ipInfo = $this->cache->getIpInfo($ip);
+        if ($ipInfo) {
+            echo '<p>IP info ' . $ipInfo['ip'] . ' <a href="?' . $this->secretRequest . '=1&tt=' . time() . '&' . $rmKey . '=' . $ipInfo['ip'] . '">X</a>';
+            if ($ipInfo['time']) {
+                echo '<span>  ' . date('Y-m-d H:i:s', $ipInfo['time'])
+                    . ', bunTimeout: ' . $ipInfo['bunTimeout']
+                    . ', cnt: ' . $ipInfo['cnt']
+                    . ', trust: ' . $ipInfo['cnt'] . '</span>';
+            }
+            echo '</p>';
+        }
+    }
+
+    protected function printTable(array $rows): void
     {
         echo '<table class="table table-striped table-hover"><thead class="thead-dark"><tr>';
-        foreach ($head as $item) {
+        foreach ($rows[0] as $item => $v) {
             echo '<th>' . $item . '</th>';
         }
         echo '</tr></thead><tbody></tbody>';
@@ -116,28 +142,45 @@ class View
     protected function prepareViewMainData(array $data): array
     {
         $rows = [];
+        $exp = 0;
+        $ddFr = $this->owner->getDosFr();
+        $baseUrl = '?' . $this->secretRequest . '=1&tt=' . time() . '&';
+
         foreach ($data as $r) {
             $flag = false;
             try {
                 $r['ip'] = Tools::convertIp2String($r['ip']);
                 $flag = true;
+                $exp = (int)$this->cache->getIpCacheBunTimeout($r['ip']);
             } catch (Exception $e) {
                 $r['ip'] = $e->getMessage();
             }
-            $rows[] = [
-                $r['ip'],
-                $r['create'] . '<br/>' . $r['update'],
-                date('m-d H:i', $this->owner->calculateTimeOut($r)),
-                $r['request_session'],
-                $r['request_total'],
-                $r['request_bad'],
-                $r['request_bad_days'],
-                isset($this->trustList[$r['trust']]) ? $this->trustList[$r['trust']] : '',
-                !empty($r['host']) ? htmlspecialchars($r['host']) : '',
-                !empty($r['ua']) ? htmlspecialchars($r['ua']) : '',
-                $flag ? '<a href="?' . $this->secretRequest . '=1&tt=' . time() . '&_logip=' . $r['ip'] . '">Logs</a>' : '',
-                $flag ? '<a href="?' . $this->secretRequest . '=1&tt=' . time() . '&' . $this->secretRequestRemove . '=' . $r['ip'] . '">X</a>' : '',
+
+            $row = [
+                'Ip' => '<span class="' . ($ddFr < $r['request_session'] ? 'color:red;' : '') . '">' . $r['ip'] . '</span>',
+                'Date' => 'Cr: ' . $r['create']
+                    . '<br/>Up: ' . $r['update']
+                    . '<br/>Exp: ' . $r['expire']
+                    . '<br/>Exp cache: ' . date('Y-m-d H:i:s', strtotime($r['update']) + $exp),
+                'Session rq' => $r['request_session'],
+                'Total rq' => $r['request_total'],
+                'Passed rq' => $r['request_bad'],
+                'Bad days' => $r['request_bad_days'],
             ];
+            if (!empty($r['trust'])) {
+                $row['Is trust'] = isset($this->trustList[$r['trust']]) ? $this->trustList[$r['trust']] : '-';
+            }
+            if (!empty($r['host'])) {
+                $row['Host'] = htmlspecialchars($r['host']);
+            }
+            if (!empty($r['ua'])) {
+                $row['UA'] = htmlspecialchars($r['ua']);
+            }
+
+            $row['.'] = $flag ? '<a href="' . $baseUrl . '_logip=' . $r['ip'] . '">Logs</a>' : '';
+            $row['..'] = $flag ? '<a href="' . $baseUrl . $this->secretRequestRemove . '=' . $r['ip'] . '">X</a>' : '';
+
+            $rows[] = $row;
         }
         return $rows;
     }

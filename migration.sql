@@ -24,3 +24,6 @@ CREATE TABLE IF NOT EXISTS iplog (
     PRIMARY KEY (`id`),
     KEY `ip` (`ip`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+alter table iplist
+    add expire datetime default current_timestamp not null

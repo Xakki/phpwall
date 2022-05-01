@@ -149,7 +149,7 @@ use Xakki\PHPWall\PHPWall;
 
         <?php if (!empty($this->getGoogleCaptchaSiteKey())) : ?>
             <form method="POST">
-                <input type="hidden" name="unbunme" value="please"/>
+                <input type="hidden" name="<?=PHPWall::POST_WALL_NAME?>" value="please"/>
                 <div class="g-recaptcha" data-sitekey="<?= $this->getGoogleCaptchaSiteKey() ?>" style="display: inline-block;"></div>
                 <div><input type="submit" value="<?= $this->locale('Unbun'); ?>" class="btn btn-lg btn-secondary"></div>
             </form>

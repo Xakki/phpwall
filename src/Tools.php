@@ -27,4 +27,9 @@ class Tools
         }
         throw new Exception("Please supply a valid IPv4 or IPv6 address");
     }
+
+    public static function highLight(string $txt, string $word): string
+    {
+        return str_replace($word, '<b>' . $word . '</b>', $txt);
+    }
 }

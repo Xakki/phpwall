@@ -25,21 +25,54 @@ use Stringable;
 class PHPWall
 {
     public const VERSION = '0.8.1';
-    public const REDIRECT_TYPE_INFO = 'info';
-    public const REDIRECT_TYPE_SELF = 'self';
-
-    public const TABLE_MAIN = 'iplist';
-    public const TABLE_LOG = 'iplog';
+    public const REDIRECT_TYPE_INFO = 'info'; // Show page info about bun
+    public const REDIRECT_TYPE_SELF = 'self'; // self redirect
 
     public const RULE_IP = 0;
     public const RULE_UA = 1;
     public const RULE_POST = 2;
     public const RULE_URL = 3;
 
-    public const TRUST_DEFAULT = 0;
-    public const TRUST_SEARCH = 10; // Найденны по соответствияю с $this->trustHosts
-    public const TRUST_CAPTCHA = 1; // Прошедшие капчу
-    public const TRUST_CONTROL = 2; // Тот кто заходил в панельку
+    public const TRUST_DEFAULT = 0; // no trust
+    public const TRUST_SEARCH = 10; // If matched by trustHosts
+    public const TRUST_CAPTCHA = 1; // If passed the captcha
+    public const TRUST_CONTROL = 2; // If entered into panel
+
+    public const POST_WALL_NAME = 'unbunme';
+    public const KEY_CACHE_INIT = 'phpWallInit';
+
+    public const ALLOW_PROPERTY = [
+        'wallTpl' => 1,
+        'cachePrefix' => 1,
+        'secretRequest' => 1,
+        'secretRequestRemove' => 1,
+        'googleCaptcha' => 1,
+        'debug' => 1,
+        'try' => 1,
+        'logMode' => 1,
+        'memcache' => 1,
+        'dbPdo' => 1,
+        'banTimeOut' => 1,
+        'banTimeOutEachDay' => 1,
+        'banTimeOutEachRequest' => 1,
+        'evilFr' => 1,
+        'checkIp' => 1,
+        'checkUrl' => 1,
+        'checkUa' => 1,
+        'checkUaEmpty' => 1,
+        'checkPost' => 1,
+        'checkUrlKeyword' => 1,
+        'checkUrlKeywordExclude' => 1,
+        'checkUaKeyword' => 1,
+        'checkUaKeywordExclude' => 1,
+        'checkPostKeyword' => 1,
+        'checkPostKeywordExclude' => 1,
+        'redirectByIp' => 1,
+        'redirectByCheck' => 1,
+        'trustHosts' => 1,
+        'lang' => 1,
+        'locale' => 1,
+    ];
 
     // special access to control
     protected string $secretRequest = 'CHANGE_ME';
@@ -51,8 +84,8 @@ class PHPWall
         'sicretkey' => 'CHANGE_ME',
     ];
     protected bool $debug = false;
-    protected int $try = 2;
-    protected int $logMode = 1; // 0 отключен полностью; 1 - логируем только при первом обнаружении; 2 - логируем при обнаружении и любых блокировок
+    protected int $try = 2; // Allowed try request before get bun
+    protected int $logMode = 1; // 0 disabled log; 1 - enable log
 
     protected array $memcache = [
         'localhost',
@@ -69,9 +102,15 @@ class PHPWall
         'options' => [],
     ];
 
-    protected int $bunTimeout = 86400 * 3;
-    protected int $bunTimeoutForDay = 43200;
-    protected int $bunTimeoutForAll = 21600;
+    protected string $cachePrefix = 'phpwall';
+    protected string $wallTpl = 'ban-view.php';
+
+    protected int $banTimeOut = 86400 * 3;
+    protected int $banTimeOutEachDay = 43200;
+    protected int $banTimeOutEachRequest = 3600;
+    protected int $evilFr = 20; // If session bad request more that evilFr, then less work with DB
+    protected int $ddosFr = 100; // Forse self reirect
+
     protected bool $checkIp = true; // if need check by IP
     protected bool $checkUrl = true; // if need check by url
     protected bool $checkUa = true; // if need check by user_agent
@@ -87,7 +126,7 @@ class PHPWall
         '/admin',
         'myadmin',
         '/pma',
-        'phpma',
+        '/phpma',
         'phpadmin',
         'mysqladmin',
         'wp-login',
@@ -124,6 +163,7 @@ class PHPWall
     protected string $redirectByCheck = self::REDIRECT_TYPE_INFO;// `self` | `info` | custom url // action if bun by over check
 
     protected array $trustHosts = [
+        'ya.ru',
         'yandex.ru',
         'yandex.com',
         'google.com',
@@ -138,7 +178,7 @@ class PHPWall
             'Home' => 'На главную',
             'Attention' => 'Внимание',
             'Your IP [{$0}] has been blocked for suspicious activity.' => 'Ваш IP [{$0}] был заблокирован за подозрительную активность.',
-            'If you want to remove the lock, then go check the captcha.' => 'Если вы хотите снять блокировку, то пройдите проверку капчей.',
+            'If you want to remove the lock, then pass the check out.' => 'Если вы хотите снять блокировку, то пройдите проверку.',
             'Unbun' => 'Разблокировать',
             'Captcha not valid! Try again.' => 'Проверка не пройдена. Попробуйте еще.',
         ],
@@ -148,13 +188,12 @@ class PHPWall
 
     private string $userIp;
     // Cached IP request frequency
-    private int $ipfrc = 0;
+    private int $ipFrc = 0;
     private string $errorMessage = '';
-    private int $evilFr = 20; // Если начинают долбить запросами, то только с мемкэшем работаем
 
     private ?LoggerInterface $logger = null;
     private ?Cache $cache = null;
-    private ?Connection $conn = null;
+    private ?Db $conn = null;
 
     public function __construct(array $config = [], ?LoggerInterface $logger = null)
     {
@@ -170,8 +209,8 @@ class PHPWall
                 return;
             }
 
-            $this->cache = new Cache($this, $this->memcache);
-            $this->conn = new Connection($this, $this->dbPdo);
+            $this->cache = new Cache($this, $this->memcache, $this->cachePrefix);
+            $this->conn = new Db($this, $this->dbPdo);
 
             if (!empty($_GET[$this->secretRequest])) {
                 if ($this->secretRequest == 'CHANGE_ME') {
@@ -179,16 +218,25 @@ class PHPWall
                 }
 
                 try {
-                    new View($this, $this->conn, $this->cache, $this->secretRequest, $this->secretRequestRemove, $this->bunTimeout);
+                    new View($this, $this->conn, $this->cache, $this->secretRequest, $this->secretRequestRemove);
                 } catch (Exception $e) {
                     $this->log(LogLevel::CRITICAL, $e);
-                    exit('View error');
+                    exit('View has error');
                 }
             }
 
             $this->init();
         } catch (Exception $e) {
             $this->log(LogLevel::ERROR, $e);
+        }
+    }
+
+    protected function setUserIp(): void
+    {
+        if (isset($_SERVER['HTTP_X_REMOTE_ADDR'])) {
+            $this->userIp = $_SERVER['HTTP_X_REMOTE_ADDR'];
+        } else {
+            $this->userIp = $_SERVER['REMOTE_ADDR'];
         }
     }
 
@@ -204,19 +252,10 @@ class PHPWall
         }
     }
 
-    protected function setUserIp(): void
-    {
-        if (isset($_SERVER['HTTP_X_REMOTE_ADDR'])) {
-            $this->userIp = $_SERVER['HTTP_X_REMOTE_ADDR'];
-        } else {
-            $this->userIp = $_SERVER['REMOTE_ADDR'];
-        }
-    }
-
     protected function setProperty(array $config): void
     {
         foreach ($config as $k => $r) {
-            if (isset($this->$k)) {
+            if (isset(self::ALLOW_PROPERTY[$k])) {
                 if (is_array($this->$k)) {
                     $this->$k = array_merge($this->$k, $r);
                 } else {
@@ -246,25 +285,33 @@ class PHPWall
     private function init(): bool
     {
         if ($this->checkIp) {
-            $this->phpCheckIp();
+            if (!$this->checkIp()) {
+                $this->wallAlarmAction(self::RULE_IP);
+            }
         }
 
         if ($this->checkUrl) {
-            $this->checkUrl();
+            if (!$this->checkUrl()) {
+                $this->wallAlarmAction(self::RULE_URL);
+            }
         }
 
         if ($this->checkUa) {
-            $this->checkUa();
+            if (!$this->checkUa()) {
+                $this->wallAlarmAction(self::RULE_UA);
+            }
         }
 
         if ($this->checkPost && !empty($_POST) && count($_POST)) {
-            $this->checkPost();
+            if (!$this->checkPost()) {
+                $this->wallAlarmAction(self::RULE_POST);
+            }
         }
 
         return true;
     }
 
-    private function phpCheckIp(): bool
+    private function checkIp(): bool
     {
         if (empty($this->userIp)) {
             // skip
@@ -272,219 +319,21 @@ class PHPWall
             return true;
         }
 
-        $this->ipfrc = $this->getIpCacheFrequency();
+        $this->ipFrc = (int)$this->cache->getIpCacheFrequency($this->userIp);
 
-        if ($this->ipfrc) {
-            if ($this->ipfrc <= $this->try) {
+        if ($this->ipFrc) {
+            if ($this->ipFrc <= $this->try) {
                 // даем еще попытку
                 return true;
             } else {
-                $this->wallAlarm(self::RULE_IP);
+                if ($this->ipFrc > $this->ddosFr) {
+                    $this->redirectByIp = self::REDIRECT_TYPE_SELF;
+                }
+                return false;
             }
         }
 
         return true;
-    }
-
-    /*****************************************************/
-    /*****************************************************/
-    /*****************************************************/
-
-    protected function getKeyIp(string $ip = ''): string
-    {
-        return 'phpwall-' . (!empty($ip) ? $ip : $this->userIp);
-    }
-
-    protected function getIpCacheFrequency(): int
-    {
-        return (int)$this->cache->get($this->getKeyIp());
-    }
-
-    protected function getIpCacheTrust(): int
-    {
-        return (int) ($this->cache->get($this->getKeyIp() . '-trust') ?? self::TRUST_DEFAULT);
-    }
-
-    protected function setIpCacheTrust(int $trust): bool
-    {
-        return $this->cache->set($this->getKeyIp() . '-trust', $trust, $this->bunTimeout);
-    }
-
-    /**
-     * Обновление по заблокированному IP
-     *
-     * @throws Exception
-     */
-    private function incrementBadIp(): void
-    {
-        $res = $this->cache->inc($this->getKeyIp(), $this->bunTimeout);
-        if ($res !== false) {
-            $this->ipfrc = $res;
-        } else {
-            $this->ipfrc++;
-        }
-
-        $saveToDb = true;
-
-        if ($this->ipfrc <= $this->try) {
-            $saveToDb = false;
-        } elseif ($this->ipfrc >= $this->evilFr) {
-            //Для защиты от небольшого ДДОСа
-            $saveToDb = fmod($this->ipfrc, 100) == 0;
-        } else {
-            $saveToDb = fmod($this->ipfrc, 2) == 0;
-        }
-
-        if ($saveToDb) {
-            $this->conn->beginTransaction();
-
-            $binIp = Tools::convertIp2Number($this->userIp);
-
-            $data = $this->conn->selectOneSql(self::TABLE_MAIN, ['ip' => $binIp]);
-
-            $upd = [];
-
-            if ($data) {
-                if ($this->ipfrc <= $data['request_session']) {
-                    $upd = [
-                        'request_total' => $data['request_total'] + $this->ipfrc,
-                        'request_session' => $this->ipfrc,
-                        'request_bad' => $data['request_bad'] + $this->ipfrc,
-                    ];
-                } else {
-                    $diff = $this->ipfrc - $data['request_session'];
-                    $upd = [
-                        'request_total' => $data['request_total'] + $diff,
-                        'request_session' => $this->ipfrc,
-                        'request_bad' => $data['request_bad'] + $diff,
-                    ];
-                }
-
-                if ($data['request_bad_days_up'] != date('Y-m-d')) {
-                    $upd['request_bad_days'] = (int)$data['request_bad_days'] + 1;
-                    $upd['request_bad_days_up'] = date('Y-m-d');
-                }
-
-                $this->conn->updateSql(self::TABLE_MAIN, ['ip' => $binIp], $upd);
-            } else {
-                $data = [
-                    'request_total' => $this->ipfrc,
-                    'request_session' => $this->ipfrc,
-                    'request_bad' => 1,
-                    'request_bad_days' => 1,
-                    'request_bad_days_up' => date('Y-m-d'),
-                    'ip' => $binIp,
-                    'create' => 0,
-                    'ua' => !empty($_SERVER['HTTP_USER_AGENT']) ? mb_substr($_SERVER['HTTP_USER_AGENT'], 0, 255) : '',
-                    'host' => substr(gethostbyaddr($this->userIp), -128),
-                    'trust' => self::TRUST_DEFAULT,
-                ];
-
-                if ($this->isTrustIp($data['host'])) {
-                    $data['trust'] = self::TRUST_SEARCH;
-                }
-
-                $this->conn->insertSql(self::TABLE_MAIN, $data);
-            }
-
-            $this->setIpCacheTrust($data['trust']);
-
-            $this->conn->commit();
-        }
-    }
-
-    public function calculateTimeOut(array $data): int
-    {
-        //TODO , хрень какая та
-        return (int)(time() + $this->bunTimeout + ($data['request_bad_days'] * $this->bunTimeoutForDay) + ($data['request_bad'] * $this->bunTimeoutForAll));
-    }
-
-    /*****************************************************/
-    /*****************************************************/
-    /*****************************************************/
-
-    private function wallAlarm(int $byRule): void
-    {
-        if ($this->debug) {
-            $this->log(LogLevel::NOTICE, 'wallAlarm: ' . View::TYPE_LIST[$byRule]);
-        }
-
-        if ($byRule === self::RULE_IP) {
-            $rule = $this->redirectByIp;
-        } else {
-            $rule = $this->redirectByCheck;
-        }
-
-        if ($rule) {
-            if ($rule === self::REDIRECT_TYPE_SELF) {
-                self::redirect('//' . $this->userIp);
-            } elseif ($rule === self::REDIRECT_TYPE_INFO) {
-                if (!empty($_POST['unbunme'])) {
-                    if ($this->unBun()) {
-                        self::redirect('//' . $_SERVER['HTTP_HOST']);
-                    }
-                }
-
-                include 'ban-view.php';
-                exit();
-            } else {
-                self::redirect($rule);
-            }
-        }
-        exit('No rule');
-    }
-
-    /*****************************************************/
-
-    protected static function redirect(string $url): void
-    {
-        header('Location: ' . $url, true, 301);
-        exit();
-    }
-
-    private function unBun(): bool
-    {
-        if (!empty($_POST['g-recaptcha-response'])) {
-            $flag = false;
-            $myCurl = curl_init();
-            curl_setopt_array($myCurl, [
-                CURLOPT_URL => 'https://www.google.com/recaptcha/api/siteverify',
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => http_build_query([
-                    'secret' => $this->googleCaptcha['sicretkey'],
-                    'response' => $_POST['g-recaptcha-response'],
-                    'remoteip' => $_SERVER['REMOTE_ADDR'],
-                ]),
-            ]);
-            $response = curl_exec($myCurl);
-            curl_close($myCurl);
-            if ($response) {
-                $response = json_decode($response, true);
-                if ($response['success']) {
-                    $flag = true;
-                }
-            }
-            if ($flag) {
-                $this->setTrustIp($this->userIp, self::TRUST_CAPTCHA);
-                return true;
-            } else {
-                $this->errorMessage = 'Captcha not valid! Try again.';
-            }
-        } else {
-            $this->errorMessage = 'Captcha not valid!';
-        }
-        return false;
-    }
-
-    public function setTrustIp(string $ip, int $trust): void
-    {
-        $this->cache->delete($this->getKeyIp($ip));
-        $this->conn->updateSql(
-            self::TABLE_MAIN,
-            ['ip' => Tools::convertIp2Number($ip)],
-            ['trust' => $trust, 'request_bad' => 0]
-        );
     }
 
     private function checkUrl(): bool
@@ -499,7 +348,7 @@ class PHPWall
                             }
                         }
                     }
-                    return $this->ruleApply(self::RULE_URL, $this->highLight($_SERVER['REQUEST_URI'], $word));
+                    return $this->ruleApply(self::RULE_URL, Tools::highLight($_SERVER['REQUEST_URI'], $word));
                 }
             } elseif (is_callable($word)) {
                 if (call_user_func($word, $_SERVER['REQUEST_URI'])) {
@@ -508,49 +357,6 @@ class PHPWall
             }
         }
         return true;
-    }
-
-    private function ruleApply(int $rule, string $word): bool
-    {
-        $this->incrementBadIp();
-
-        if ($this->logMode > 0) {
-            $dataLog = [
-                'ip' => Tools::convertIp2Number($this->userIp),
-                'rule' => $rule,
-                'data' => $word,
-                'try' => $this->ipfrc,
-                'create' => 0,
-            ];
-            $this->conn->insertSql(self::TABLE_LOG, $dataLog);
-        }
-
-        if ($this->ipfrc <= $this->try) {
-            // try skip
-            return true;
-        }
-
-        $trust = $this->getIpCacheTrust();
-        if ($trust !== self::TRUST_SEARCH) {
-            $this->wallAlarm($rule);
-        }
-
-        return true;
-    }
-
-    private function isTrustIp(string $host): bool
-    {
-        foreach ($this->trustHosts as $r) {
-            if (str_contains($host, $r)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    protected function highLight(string $txt, string $word): string
-    {
-        return str_replace($word, '<b>' . $word . '</b>', $txt);
     }
 
     private function checkUa(): bool
@@ -580,8 +386,6 @@ class PHPWall
         return true;
     }
 
-    ///////////////////////////////////////
-
     private function checkPost(): bool
     {
         $post = json_encode($_POST, JSON_UNESCAPED_UNICODE);
@@ -606,12 +410,189 @@ class PHPWall
         return true;
     }
 
-    // TODO
-    // 2- проверка и если есть, то блокируем с предупреждением на 10 мин
-    // 3 - проверка и блокируем на 1 час, 12, 24, 48, 7 дней
-    /****************************/
-    // 't' - время последнего плохого запроса
-    // 'fr' - кол-во плохих запросов за сессию
+    private function ruleApply(int $rule, string $word): bool
+    {
+        $this->incrementBadIp();
+
+        if ($this->logMode > 0) {
+            $this->conn->addLog($this->userIp, $rule, $word, $this->ipFrc);
+        }
+
+        if ($this->ipFrc <= $this->try) {
+            // try skip
+            return true;
+        }
+
+        $trust = $this->cache->getIpCacheTrust($this->userIp);
+        if ($trust !== self::TRUST_SEARCH) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function wallAlarmAction(int $byRule): void
+    {
+        if ($this->debug) {
+            $this->log(LogLevel::NOTICE, 'wallAlarm: ' . View::TYPE_LIST[$byRule]);
+        }
+
+        if ($byRule === self::RULE_IP) {
+            $rule = $this->redirectByIp;
+        } else {
+            $rule = $this->redirectByCheck;
+        }
+
+        if ($rule) {
+            if ($rule === self::REDIRECT_TYPE_SELF) {
+                self::redirect('//' . $this->userIp);
+            } elseif ($rule === self::REDIRECT_TYPE_INFO) {
+                if (!empty($_POST[self::POST_WALL_NAME])) {
+                    if ($this->unBunByCaptcha()) {
+                        self::redirect('//' . $_SERVER['HTTP_HOST']);
+                    }
+                }
+
+                include $this->wallTpl;
+                exit();
+            } else {
+                self::redirect($rule);
+            }
+        }
+        exit('No rule');
+    }
+
+    protected static function redirect(string $url): void
+    {
+        header('Location: ' . $url, true, 301);
+        exit();
+    }
+
+    private function unBunByCaptcha(): bool
+    {
+        if (!empty($_POST['g-recaptcha-response'])) {
+            $flag = false;
+            $myCurl = curl_init();
+            curl_setopt_array($myCurl, [
+                CURLOPT_URL => 'https://www.google.com/recaptcha/api/siteverify',
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => http_build_query([
+                    'secret' => $this->googleCaptcha['sicretkey'],
+                    'response' => $_POST['g-recaptcha-response'],
+                    'remoteip' => $this->userIp,
+                ]),
+            ]);
+            $response = curl_exec($myCurl);
+            curl_close($myCurl);
+            if ($response) {
+                $response = json_decode($response, true);
+                if ($response['success']) {
+                    $flag = true;
+                }
+            }
+            if ($flag) {
+                $this->setIpIsTrust($this->userIp, self::TRUST_CAPTCHA);
+                return true;
+            } else {
+                $this->errorMessage = 'Captcha not valid! Try again.';
+            }
+        } else {
+            $this->errorMessage = 'Captcha not valid!';
+        }
+        return false;
+    }
+
+    public function setIpIsTrust(string $ip, int $trust): void
+    {
+        $this->cache->setIpIsTrust($ip, $trust);
+        $this->conn->setIpIsTrust($ip, $trust);
+    }
+
+    public function getBunTimeout(array $data): int
+    {
+        return $this->banTimeOut +
+            ($data['request_bad_days'] - 1) * $this->banTimeOutEachDay +
+            ($data['request_bad'] * $this->banTimeOutEachRequest);
+    }
+
+    private function incrementBadIp(): void
+    {
+        $this->ipFrc++;
+        $saveToDb = true;
+
+        if ($this->ipFrc < $this->try) {
+            $saveToDb = false;
+        } elseif ($this->ipFrc >= $this->evilFr) {
+            //Для защиты от небольшого ДДОСа
+            $saveToDb = fmod($this->ipFrc, 100) == 0;
+        } elseif ($this->ipFrc !== $this->try) {
+            $saveToDb = fmod($this->ipFrc, 3) == 0;
+        }
+
+        $ip = $this->userIp;
+
+        if ($saveToDb) {
+            $this->conn->beginTransaction();
+
+            $data = $this->conn->getMainByIp($ip);
+
+            $bunTimeout = $this->getBunTimeout($data);
+
+            if ($data) {
+                $data = $this->conn->updateBadIp($data, $this->ipFrc, $bunTimeout);
+            } else {
+                $data = $this->conn->insertBadIp($ip, $this->ipFrc, $bunTimeout);
+            }
+
+            $this->conn->commit();
+
+            $this->cache->setIpCache(
+                $ip,
+                $bunTimeout,
+                $data['trust'],
+            );
+        } else {
+            $this->cache->setIpCache(
+                $ip,
+                $this->banTimeOut,
+            );
+        }
+    }
+
+    /*****************************************************/
+    /*****************************************************/
+    /*****************************************************/
+
+    public function getErrorMessage(): string
+    {
+        return $this->errorMessage;
+    }
+
+    public function getDosFr(): int
+    {
+        return $this->ddosFr;
+    }
+
+    public function getGoogleCaptchaSiteKey(): string
+    {
+        return $this->googleCaptcha['sitekey'];
+    }
+
+    public function getUserIp(): string
+    {
+        return $this->userIp;
+    }
+
+    public function isTrustIp(string $host): bool
+    {
+        foreach ($this->trustHosts as $r) {
+            if (str_contains($host, $r)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     public function locale(string $message, array $params = []): string
     {
@@ -628,50 +609,24 @@ class PHPWall
 
     public function restoreCache(): void
     {
-        $f = $this->cache->get('phpWallInit');
+        $f = $this->cache->get(self::KEY_CACHE_INIT);
         if ($f) {
             return;
         }
         $checkVal = microtime() . '-' . rand(0, 100000);
-        $this->cache->set('phpWallInit', $checkVal);
+        $this->cache->set(self::KEY_CACHE_INIT, $checkVal);
         usleep(10);
-        if ($this->cache->get('phpWallInit') !== $checkVal) {
+        if ($this->cache->get(self::KEY_CACHE_INIT) !== $checkVal) {
             return;
         }
 
-        $data = $this->conn->getDataForRestore($this->bunTimeout);
+        $data = $this->conn->getDataForRestore();
         if (!$data) {
             return;
         }
         foreach ($data as $r) {
             $ip = Tools::convertIp2String($r['ip']);
-            $this->cache->set($this->getKeyIp($ip) . '-time', $r['update'], $this->bunTimeout);
-            $this->cache->set($this->getKeyIp($ip), $r['request_session'], $this->bunTimeout);
+            $this->cache->setIpCache($ip, $this->getBunTimeout($r), $r['trust']);
         }
-    }
-
-    public function getDataControlView(bool $showInactiveIp = false): array
-    {
-        return $this->conn->getDataControlView($showInactiveIp, $this->bunTimeout);
-    }
-
-    public function getIpInfo(): array
-    {
-        $key = $this->getKeyIp();
-        return [
-            'ip' => $this->userIp,
-            'time' => (int)$this->cache->get($key . '-time'),
-            'cnt' => (int)$this->cache->get($key),
-        ];
-    }
-
-    public function getErrorMessage(): string
-    {
-        return $this->errorMessage;
-    }
-
-    public function getGoogleCaptchaSiteKey(): string
-    {
-        return $this->googleCaptcha['sitekey'];
     }
 }
