@@ -1,17 +1,15 @@
 <?php
 
-declare(strict_types=1);
-
 use Xakki\PHPWall\PHPWall;
 
 /**
- * @var PHPWall $this
+ * @var PHPWall $phpWall
  */
 ?>
 <!doctype html>
 <html lang="en">
 <head>
-    <title>PHPWall <?= PHPWall::VERSION ?> - <?= $this->locale('Attention'); ?></title>
+    <title>PHPWall <?= PHPWall::VERSION ?> - <?= $phpWall->locale('Attention'); ?></title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <meta name="description" content="">
@@ -125,7 +123,7 @@ use Xakki\PHPWall\PHPWall;
         }
 
     </style>
-    <?php if (!empty($this->getGoogleCaptchaSiteKey())) : ?>
+    <?php if (!empty($phpWall->getGoogleCaptchaSiteKey())) : ?>
         <script src='https://www.google.com/recaptcha/api.js'></script>
     <?php endif; ?>
 </head>
@@ -137,27 +135,27 @@ use Xakki\PHPWall\PHPWall;
         <div class="inner">
             <h3 class="masthead-brand">PHPWall</h3>
             <nav class="nav nav-masthead justify-content-center">
-                <a class="nav-link" href="/"><?= $this->locale('Home'); ?></a>
+                <a class="nav-link" href="/"><?= $phpWall->locale('Home'); ?></a>
             </nav>
         </div>
     </header>
 
     <main role="main" class="inner cover">
-        <h1 class="cover-heading"><?= $this->locale('Attention'); ?>!</h1>
-        <p class="lead"><?= $this->locale('Your IP [{$0}] has been blocked for suspicious activity.', [$_SERVER['REMOTE_ADDR']]); ?></p>
-        <p><?= $this->locale('If you want to remove the lock, then go check the captcha.'); ?></p>
+        <h1 class="cover-heading"><?= $phpWall->locale('Attention'); ?>!</h1>
+        <p class="lead"><?= $phpWall->locale('Your IP [{$0}] has been blocked for suspicious activity.', [$_SERVER['REMOTE_ADDR']]); ?></p>
+        <p><?= $phpWall->locale('If you want to remove the lock, then go check the captcha.'); ?></p>
 
-        <?php if (!empty($this->getGoogleCaptchaSiteKey())) : ?>
+        <?php if (!empty($phpWall->getGoogleCaptchaSiteKey())) : ?>
             <form method="POST">
                 <input type="hidden" name="<?=PHPWall::POST_WALL_NAME?>" value="please"/>
-                <div class="g-recaptcha" data-sitekey="<?= $this->getGoogleCaptchaSiteKey() ?>" style="display: inline-block;"></div>
-                <div><input type="submit" value="<?= $this->locale('Unbun'); ?>" class="btn btn-lg btn-secondary"></div>
+                <div class="g-recaptcha" data-sitekey="<?= $phpWall->getGoogleCaptchaSiteKey() ?>" style="display: inline-block;"></div>
+                <div><input type="submit" value="<?= $phpWall->locale('Unbun'); ?>" class="btn btn-lg btn-secondary"></div>
             </form>
         <?php endif; ?>
 
-        <?php if ($this->getErrorMessage()) :
+        <?php if ($phpWall->getErrorMessage()) :
             ?><br/>
-            <p class="alert alert-danger"><?= $this->locale($this->getErrorMessage()) ?></p>
+            <p class="alert alert-danger"><?= $phpWall->locale($phpWall->getErrorMessage()) ?></p>
         <?php endif; ?>
     </main>
 

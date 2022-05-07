@@ -1,13 +1,10 @@
 <?php
 
-declare(strict_types=1);
-
 namespace Xakki\PHPWall;
 
 use Exception;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
-use Stringable;
 
 /*
    PhpWall- scan protect
@@ -24,24 +21,24 @@ use Stringable;
 
 class PHPWall
 {
-    public const VERSION = '0.8.1';
-    public const REDIRECT_TYPE_INFO = 'info'; // Show page info about bun
-    public const REDIRECT_TYPE_SELF = 'self'; // self redirect
+    const VERSION = '0.8.1';
+    const REDIRECT_TYPE_INFO = 'info'; // Show page info about bun
+    const REDIRECT_TYPE_SELF = 'self'; // self redirect
 
-    public const RULE_IP = 0;
-    public const RULE_UA = 1;
-    public const RULE_POST = 2;
-    public const RULE_URL = 3;
+    const RULE_IP = 0;
+    const RULE_UA = 1;
+    const RULE_POST = 2;
+    const RULE_URL = 3;
 
-    public const TRUST_DEFAULT = 0; // no trust
-    public const TRUST_SEARCH = 10; // If matched by trustHosts
-    public const TRUST_CAPTCHA = 1; // If passed the captcha
-    public const TRUST_CONTROL = 2; // If entered into panel
+    const TRUST_DEFAULT = 0; // no trust
+    const TRUST_SEARCH = 10; // If matched by trustHosts
+    const TRUST_CAPTCHA = 1; // If passed the captcha
+    const TRUST_CONTROL = 2; // If entered into panel
 
-    public const POST_WALL_NAME = 'unbunme';
-    public const KEY_CACHE_INIT = 'phpWallInit';
+    const POST_WALL_NAME = 'unbunme';
+    const KEY_CACHE_INIT = 'phpWallInit';
 
-    public const ALLOW_PROPERTY = [
+    const ALLOW_PROPERTY = [
         'wallTpl' => 1,
         'cachePrefix' => 1,
         'secretRequest' => 1,
@@ -75,24 +72,24 @@ class PHPWall
     ];
 
     // special access to control
-    protected string $secretRequest = 'CHANGE_ME';
-    protected string $secretRequestRemove = 'CHANGE_ME';
+    protected $secretRequest = 'CHANGE_ME';
+    protected $secretRequestRemove = 'CHANGE_ME';
 
     // get key on https://www.google.com/recaptcha/admin/
-    protected array $googleCaptcha = [
+    protected $googleCaptcha = [
         'sitekey' => 'CHANGE_ME',
         'sicretkey' => 'CHANGE_ME',
     ];
-    protected bool $debug = false;
-    protected int $try = 2; // Allowed try request before get bun
-    protected int $logMode = 1; // 0 disabled log; 1 - enable log
+    protected $debug = false;
+    protected $try = 2; // Allowed try request before get bun
+    protected $logMode = 1; // 0 disabled log; 1 - enable log
 
-    protected array $memcache = [
+    protected $memcache = [
         'localhost',
         11211,
     ];
 
-    protected array $dbPdo = [
+    protected $dbPdo = [
         'engine' => 'mysql',
         'port' => 3306,
         'host' => 'localhost',
@@ -102,22 +99,22 @@ class PHPWall
         'options' => [],
     ];
 
-    protected string $cachePrefix = 'phpwall';
-    protected string $wallTpl = 'ban-view.php';
+    protected $cachePrefix = 'phpwall';
+    protected $wallTpl = 'ban-view.php';
 
-    protected int $banTimeOut = 86400 * 3;
-    protected int $banTimeOutEachDay = 43200;
-    protected int $banTimeOutEachRequest = 3600;
-    protected int $evilFr = 20; // If session bad request more that evilFr, then less work with DB
-    protected int $ddosFr = 100; // Forse self reirect
+    protected $banTimeOut = 86400 * 3;
+    protected $banTimeOutEachDay = 43200;
+    protected $banTimeOutEachRequest = 3600;
+    protected $evilFr = 20; // If session bad request more that evilFr, then less work with DB
+    protected $ddosFr = 100; // Forse self reirect
 
-    protected bool $checkIp = true; // if need check by IP
-    protected bool $checkUrl = true; // if need check by url
-    protected bool $checkUa = true; // if need check by user_agent
-    protected bool $checkUaEmpty = false; // if need check user_agent for empty
-    protected bool $checkPost = true; // if need check by POST
+    protected $checkIp = true; // if need check by IP
+    protected $checkUrl = true; // if need check by url
+    protected $checkUa = true; // if need check by user_agent
+    protected $checkUaEmpty = false; // if need check user_agent for empty
+    protected $checkPost = true; // if need check by POST
 
-    protected array $checkUrlKeyword = [
+    protected $checkUrlKeyword = [
         'eval(',
         'sqlite',
         '/manager',
@@ -146,23 +143,23 @@ class PHPWall
         '/wstat',
         'fckeditor/editor',
     ];
-    protected array $checkUrlKeywordExclude = [];
-    protected array $checkUaKeyword = [
+    protected $checkUrlKeywordExclude = [];
+    protected $checkUaKeyword = [
         'eval(',
         'curl',
     ];
-    protected array $checkUaKeywordExclude = [];
+    protected $checkUaKeywordExclude = [];
 
-    protected array $checkPostKeyword = [
+    protected $checkPostKeyword = [
         'eval(',
         'curl',
     ];
-    protected array $checkPostKeywordExclude = [];
+    protected $checkPostKeywordExclude = [];
 
-    protected string $redirectByIp = self::REDIRECT_TYPE_INFO;// `self` | `info` | custom url  // action if ban by IP
-    protected string $redirectByCheck = self::REDIRECT_TYPE_INFO;// `self` | `info` | custom url // action if bun by over check
+    protected $redirectByIp = self::REDIRECT_TYPE_INFO;// `self` | `info` | custom url  // action if ban by IP
+    protected $redirectByCheck = self::REDIRECT_TYPE_INFO;// `self` | `info` | custom url // action if bun by over check
 
-    protected array $trustHosts = [
+    protected $trustHosts = [
         'ya.ru',
         'yandex.ru',
         'yandex.com',
@@ -171,9 +168,9 @@ class PHPWall
         'yahoo.com',
     ];
 
-    protected string $lang = 'en';// Default locale
+    protected $lang = 'en';// Default locale
 
-    protected array $locale = [
+    protected $locale = [
         'ru' => [
             'Home' => 'На главную',
             'Attention' => 'Внимание',
@@ -186,16 +183,23 @@ class PHPWall
 
     /////////////////////////////////////////////////
 
-    private string $userIp;
+    private $userIp;
     // Cached IP request frequency
-    private int $ipFrc = 0;
-    private string $errorMessage = '';
+    private $ipFrc = 0;
+    private $errorMessage = '';
 
-    private ?LoggerInterface $logger = null;
-    private ?Cache $cache = null;
-    private ?Db $conn = null;
+    /** @var LoggerInterface|null  */
+    private $logger;
+    /** @var Cache  */
+    private $cache;
+    /** @var Db  */
+    private $conn;
 
-    public function __construct(array $config = [], ?LoggerInterface $logger = null)
+    /**
+     * @param array $config
+     * @param LoggerInterface|null $logger
+     */
+    public function __construct(array $config = [], LoggerInterface $logger = null)
     {
         if ($logger) {
             $this->logger = $logger;
@@ -231,7 +235,10 @@ class PHPWall
         }
     }
 
-    protected function setUserIp(): void
+    /**
+     * @return void
+     */
+    protected function setUserIp()
     {
         if (isset($_SERVER['HTTP_X_REMOTE_ADDR'])) {
             $this->userIp = $_SERVER['HTTP_X_REMOTE_ADDR'];
@@ -240,7 +247,10 @@ class PHPWall
         }
     }
 
-    protected function setLang(): void
+    /**
+     * @return void
+     */
+    protected function setLang()
     {
         if (empty($_SERVER['HTTP_ACCEPT_LANGUAGE'])) {
             return;
@@ -252,10 +262,14 @@ class PHPWall
         }
     }
 
-    protected function setProperty(array $config): void
+    /**
+     * @param array $config
+     * @return void
+     */
+    protected function setProperty($config)
     {
         foreach ($config as $k => $r) {
-            if (isset(self::ALLOW_PROPERTY[$k])) {
+            if (!empty(self::ALLOW_PROPERTY[$k])) {
                 if (is_array($this->$k)) {
                     $this->$k = array_merge($this->$k, $r);
                 } else {
@@ -265,7 +279,13 @@ class PHPWall
         }
     }
 
-    public function log(string $level, string|Stringable $message, array $context = []): void
+    /**
+     * @param string $level
+     * @param string|Exception $message
+     * @param array $context
+     * @return void
+     */
+    public function log($level, $message, $context = [])
     {
         if ($this->debug) {
             echo 'log - <pre>';
@@ -279,10 +299,13 @@ class PHPWall
         if (!$this->logger) {
             return;
         }
-        $this->logger->log($level, $message, $context);
+        $this->logger->log($level, (string) $message, $context);
     }
 
-    private function init(): bool
+    /**
+     * @return bool
+     */
+    private function init()
     {
         if ($this->checkIp) {
             if (!$this->checkIp()) {
@@ -311,7 +334,10 @@ class PHPWall
         return true;
     }
 
-    private function checkIp(): bool
+    /**
+     * @return bool
+     */
+    private function checkIp()
     {
         if (empty($this->userIp)) {
             // skip
@@ -336,7 +362,10 @@ class PHPWall
         return true;
     }
 
-    private function checkUrl(): bool
+    /**
+     * @return bool
+     */
+    private function checkUrl()
     {
         foreach ($this->checkUrlKeyword as $word) {
             if (is_string($word)) {
@@ -359,7 +388,10 @@ class PHPWall
         return true;
     }
 
-    private function checkUa(): bool
+    /**
+     * @return bool
+     */
+    private function checkUa()
     {
         if (!$_SERVER['HTTP_USER_AGENT'] && $this->checkUaEmpty) {
             return $this->ruleApply(self::RULE_UA, '*empty*');
@@ -386,7 +418,10 @@ class PHPWall
         return true;
     }
 
-    private function checkPost(): bool
+    /**
+     * @return bool
+     */
+    private function checkPost()
     {
         $post = json_encode($_POST, JSON_UNESCAPED_UNICODE);
         foreach ($this->checkPostKeyword as $word) {
@@ -410,7 +445,13 @@ class PHPWall
         return true;
     }
 
-    private function ruleApply(int $rule, string $word): bool
+    /**
+     * @param int $rule
+     * @param string $word
+     * @return bool
+     * @throws Exception
+     */
+    private function ruleApply($rule, $word)
     {
         $this->incrementBadIp();
 
@@ -431,7 +472,11 @@ class PHPWall
         return true;
     }
 
-    private function wallAlarmAction(int $byRule): void
+    /**
+     * @param int $byRule
+     * @return void
+     */
+    private function wallAlarmAction($byRule)
     {
         if ($this->debug) {
             $this->log(LogLevel::NOTICE, 'wallAlarm: ' . View::TYPE_LIST[$byRule]);
@@ -452,7 +497,7 @@ class PHPWall
                         self::redirect('//' . $_SERVER['HTTP_HOST']);
                     }
                 }
-
+                $phpWall = $this;
                 include $this->wallTpl;
                 exit();
             } else {
@@ -462,13 +507,20 @@ class PHPWall
         exit('No rule');
     }
 
-    protected static function redirect(string $url): void
+    /**
+     * @param string $url
+     * @return void
+     */
+    protected static function redirect($url)
     {
         header('Location: ' . $url, true, 301);
         exit();
     }
 
-    private function unBunByCaptcha(): bool
+    /**
+     * @return bool
+     */
+    private function unBunByCaptcha()
     {
         if (!empty($_POST['g-recaptcha-response'])) {
             $flag = false;
@@ -485,7 +537,7 @@ class PHPWall
             ]);
             $response = curl_exec($myCurl);
             curl_close($myCurl);
-            if ($response) {
+            if (is_string($response)) {
                 $response = json_decode($response, true);
                 if ($response['success']) {
                     $flag = true;
@@ -503,20 +555,34 @@ class PHPWall
         return false;
     }
 
-    public function setIpIsTrust(string $ip, int $trust): void
+    /**
+     * @param string $ip
+     * @param int $trust
+     * @return void
+     * @throws Exception
+     */
+    public function setIpIsTrust($ip, $trust)
     {
         $this->cache->setIpIsTrust($ip, $trust);
         $this->conn->setIpIsTrust($ip, $trust);
     }
 
-    public function getBunTimeout(array $data): int
+    /**
+     * @param array $data
+     * @return int
+     */
+    public function getBunTimeout(array $data)
     {
         return $this->banTimeOut +
             ($data['request_bad_days'] - 1) * $this->banTimeOutEachDay +
             ($data['request_bad'] * $this->banTimeOutEachRequest);
     }
 
-    private function incrementBadIp(): void
+    /**
+     * @return void
+     * @throws Exception
+     */
+    private function incrementBadIp()
     {
         $this->ipFrc++;
         $saveToDb = true;
@@ -550,12 +616,12 @@ class PHPWall
             $this->cache->setIpCache(
                 $ip,
                 $bunTimeout,
-                $data['trust'],
+                $data['trust']
             );
         } else {
             $this->cache->setIpCache(
                 $ip,
-                $this->banTimeOut,
+                $this->banTimeOut
             );
         }
     }
@@ -564,37 +630,58 @@ class PHPWall
     /*****************************************************/
     /*****************************************************/
 
-    public function getErrorMessage(): string
+    /**
+     * @return string
+     */
+    public function getErrorMessage()
     {
         return $this->errorMessage;
     }
 
-    public function getDosFr(): int
+    /**
+     * @return int
+     */
+    public function getDosFr()
     {
         return $this->ddosFr;
     }
 
-    public function getGoogleCaptchaSiteKey(): string
+    /**
+     * @return string
+     */
+    public function getGoogleCaptchaSiteKey()
     {
         return $this->googleCaptcha['sitekey'];
     }
 
-    public function getUserIp(): string
+    /**
+     * @return string
+     */
+    public function getUserIp()
     {
         return $this->userIp;
     }
 
-    public function isTrustIp(string $host): bool
+    /**
+     * @param string $host
+     * @return bool
+     */
+    public function isTrustIp($host)
     {
         foreach ($this->trustHosts as $r) {
-            if (str_contains($host, $r)) {
+            if (strpos($host, $r) !== false) {
                 return true;
             }
         }
         return false;
     }
 
-    public function locale(string $message, array $params = []): string
+    /**
+     * @param string $message
+     * @param array $params
+     * @return string
+     */
+    public function locale($message, array $params = [])
     {
         if (isset($this->locale[$this->lang][$message])) {
             $message = $this->locale[$this->lang][$message];
@@ -607,7 +694,11 @@ class PHPWall
         return $message;
     }
 
-    public function restoreCache(): void
+    /**
+     * @return void
+     * @throws Exception
+     */
+    public function restoreCache()
     {
         $f = $this->cache->get(self::KEY_CACHE_INIT);
         if ($f) {
@@ -626,7 +717,9 @@ class PHPWall
         }
         foreach ($data as $r) {
             $ip = Tools::convertIp2String($r['ip']);
-            $this->cache->setIpCache($ip, $this->getBunTimeout($r), $r['trust']);
+            if ($ip) {
+                $this->cache->setIpCache($ip, $this->getBunTimeout($r), $r['trust']);
+            }
         }
     }
 }

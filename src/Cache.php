@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 namespace Xakki\PHPWall;
 
 use Exception;
@@ -9,13 +7,28 @@ use Memcached;
 
 class Cache
 {
-    private ?Memcached $memcached = null;
+    /** @var Memcached  */
+    private $memcached;
+    /** @var PHPWall  */
+    private $owner;
+    /** @var array  */
+    private $config;
+    /** @var string|string  */
+    private $cachePrefix;
 
-    public function __construct(private PHPWall $owner, private array $config, private string $cachePrefix)
+    public function __construct(PHPWall $owner, $config, $cachePrefix)
     {
+        $this->owner  = $owner;
+        $this->config  = $config;
+        $this->cachePrefix  = $cachePrefix;
     }
 
-    public function setIpIsTrust(string $ip, int $trust): void
+    /**
+     * @param string $ip
+     * @param int $trust
+     * @return void
+     */
+    public function setIpIsTrust($ip, $trust)
     {
         $key = $this->getKeyIp($ip);
         $this->delete($key);
@@ -23,18 +36,31 @@ class Cache
         $this->set($key . '-trust', $trust);
     }
 
-    protected function getKeyIp(string $ip): string
+    /**
+     * @param string $ip
+     * @return string
+     */
+    protected function getKeyIp($ip)
     {
         return $this->cachePrefix . '-' . $ip;
     }
 
-    public function delete(string $key): bool
+    /**
+     * @param string $key
+     * @return bool
+     * @throws Exception
+     */
+    public function delete($key)
     {
         $this->connect();
         return $this->memcached->delete($key);
     }
 
-    protected function connect(): void
+    /**
+     * @return void
+     * @throws Exception
+     */
+    protected function connect()
     {
         if ($this->memcached) {
             return;
@@ -48,36 +74,69 @@ class Cache
         $this->owner->restoreCache();
     }
 
-    public function set(string $key, mixed $value, int $expiration = 0): bool
+    /**
+     * @param string $key
+     * @param mixed $value
+     * @param int $expiration
+     * @return bool
+     * @throws Exception
+     */
+    public function set($key, $value, $expiration = 0)
     {
         $this->connect();
         return $this->memcached->set($key, $value, $expiration);
     }
 
-    public function getIpCacheFrequency(string $ip): false|int
+    /**
+     * @param string $ip
+     * @return false|int
+     */
+    public function getIpCacheFrequency($ip)
     {
         return $this->get($this->getKeyIp($ip));
     }
 
     /**************************************/
 
-    public function get(string $key): mixed
+    /**
+     * @param string $key
+     * @return mixed
+     * @throws Exception
+     */
+    public function get($key)
     {
         $this->connect();
         return $this->memcached->get($key);
     }
 
-    public function getIpCacheTrust(string $ip): false|int
+    /**
+     * @param string $ip
+     * @return false|int
+     * @throws Exception
+     */
+    public function getIpCacheTrust($ip)
     {
         return $this->get($this->getKeyIp($ip) . '-trust');
     }
 
-    public function getIpCacheBunTimeout(string $ip): false|int
+    /**
+     * @param string $ip
+     * @return false|int
+     * @throws Exception
+     */
+    public function getIpCacheBunTimeout($ip)
     {
         return $this->get($this->getKeyIp($ip) . '-bunTimeout');
     }
 
-    public function setIpCache(string $ip, int $banTimeOut, ?int $trust = null): void
+    /**
+     * @param string $ip
+     * @param int $banTimeOut
+     * @param int|null $trust
+     * @return void
+     * @throws Exception
+     */
+    public function setIpCache($ip, $banTimeOut, $trust = null)
     {
         $key = $this->getKeyIp($ip);
         if (!is_null($trust)) {
@@ -93,7 +152,13 @@ class Cache
         $this->inc($key, $banTimeOut);
     }
 
-    public function inc(string $key, int $expiration = 0): false|int
+    /**
+     * @param string $key
+     * @param int $expiration
+     * @return false|int
+     * @throws Exception
+     */
+    public function inc($key, $expiration = 0)
     {
         $this->connect();
 
@@ -108,7 +173,12 @@ class Cache
         return $v;
     }
 
-    public function getIpInfo(string $ip): array
+    /**
+     * @param string $ip
+     * @return array
+     * @throws Exception
+     */
+    public function getIpInfo($ip)
     {
         $key = $this->getKeyIp($ip);
         return [

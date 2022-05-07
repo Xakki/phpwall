@@ -2,14 +2,20 @@
 Protect site from scanners on PHP
 Get googleCaptha keys from https://www.google.com/recaptcha/admin/
 
+```
+CREATE DATABASE IF NOT EXISTS phpwall;
+CREATE USER IF NOT EXISTS 'phpwall'@'%' IDENTIFIED BY 'CHANGE_ME';
+GRANT ALL PRIVILEGES ON phpwall.* TO 'phpwall'@'%';"
+```
+
 ```php
 $phpWallConf = [
     'secretRequest' => 'CHANGE_ME',
     'secretRequestRemove' => 'CHANGE_ME',
-    'bunTimeout' => 86400,
-    'check_post' => false,
-    'check_ua' => false,
-    'check_url_keyword_exclude' => ['/admin/index.php', '/user/admin'],
+    'banTimeOut' => 86400,
+    'checkPost' => false,
+    'checkUa' => false,
+    'checkUrlKeywordExclude' => ['/admin/index.php', '/user/admin'],
     'dbPdo' => [
         'password' => 'passwor to databse'
     ],

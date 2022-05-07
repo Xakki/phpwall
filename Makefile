@@ -1,11 +1,11 @@
 SHELL = /bin/bash
 ### https://makefiletutorial.com/
 
-docker := docker run -it -v $(PWD):/app phpwall
+docker := docker run -it -v $(PWD):/app phpwall56
 composer := $(docker) composer
 
 docker-build:
-	docker build -t phpwall .
+	docker build -t phpwall56 .
 
 bash:
 	$(docker) bash
@@ -22,8 +22,5 @@ cs-fix:
 cs-check:
 	$(composer) cs-check
 
-#test:
-#	$(composer) phpunit
-
-phpstan:
-	$(docker) composer phpstan
+psalm:
+	$(docker) vendor/bin/psalm

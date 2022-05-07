@@ -1,33 +1,45 @@
 <?php
 
-declare(strict_types=1);
-
 namespace Xakki\PHPWall;
 
 use Exception;
 
 class View
 {
-    public const TYPE_LIST = [
+    const TYPE_LIST = [
         PHPWall::RULE_IP => 'IP',
         PHPWall::RULE_UA => 'UA',
         PHPWall::RULE_POST => 'POST',
         PHPWall::RULE_URL => 'URL',
     ];
-    protected string $secretRequest;
-    protected string $secretRequestRemove;
-    protected Db $conn;
-    protected Cache $cache;
+    /** @var string  */
+    protected $secretRequest;
+    /** @var string  */
+    protected $secretRequestRemove;
+    /** @var Db  */
+    protected $conn;
+    /** @var Cache  */
+    protected $cache;
 
-    private array $trustList = [
+    /** @var array|string[]  */
+    private $trustList = [
         PHPWall::TRUST_SEARCH => 'Search',
         PHPWall::TRUST_DEFAULT => '-',
         PHPWall::TRUST_CAPTCHA => 'CAPTCHA',
         PHPWall::TRUST_CONTROL => 'Control',
     ];
-    private PHPWall $owner;
+    /** @var PHPWall  */
+    private $owner;
 
-    public function __construct(PHPWall $owner, Db $conn, Cache $cache, string $secretRequest, string $secretRequestRemove)
+    /**
+     * @param PHPWall $owner
+     * @param Db $conn
+     * @param Cache $cache
+     * @param string $secretRequest
+     * @param string $secretRequestRemove
+     * @throws Exception
+     */
+    public function __construct(PHPWall $owner, Db $conn, Cache $cache, $secretRequest, $secretRequestRemove)
     {
         $this->owner = $owner;
         $this->conn = $conn;
@@ -60,7 +72,7 @@ class View
             $this->printTable($rows);
         } else {
             $baseUrl = '?' . $this->secretRequest . '=1&tt=' . time() . '&_tab=';
-            $tab = $_GET['_tab'] ?? 'active';
+            $tab = empty($_GET['_tab']) ? 'active' : $_GET['_tab'];
             $tabList = [
                 'active' => 'Active',
                 'slep' => 'Sleep',
@@ -107,7 +119,13 @@ class View
         exit('');
     }
 
-    protected function printIpInfo(string $ip, string $rmKey): void
+    /**
+     * @param string $ip
+     * @param string $rmKey
+     * @return void
+     * @throws Exception
+     */
+    protected function printIpInfo($ip, $rmKey)
     {
         $ipInfo = $this->cache->getIpInfo($ip);
         if ($ipInfo) {
@@ -122,12 +140,17 @@ class View
         }
     }
 
-    protected function printTable(array $rows): void
+    /**
+     * @param array $rows
+     * @return void
+     */
+    protected function printTable(array $rows)
     {
         echo '<table class="table table-striped table-hover"><thead class="thead-dark"><tr>';
-        foreach ($rows[0] as $item => $v) {
-            echo '<th>' . $item . '</th>';
-        }
+        if (!empty($rows[0]))
+            foreach ($rows[0] as $item => $v) {
+                echo '<th>' . $item . '</th>';
+            }
         echo '</tr></thead><tbody></tbody>';
         foreach ($rows as $row) {
             echo '<tr>';
@@ -139,7 +162,11 @@ class View
         echo '</tbody></table>';
     }
 
-    protected function prepareViewMainData(array $data): array
+    /**
+     * @param array $data
+     * @return array
+     */
+    protected function prepareViewMainData(array $data)
     {
         $rows = [];
         $exp = 0;

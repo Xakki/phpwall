@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS iplist (
+CREATE TABLE IF NOT EXISTS phpwall.iplist (
     `ip` varbinary(16) NOT NULL,
     `create` datetime NOT NULL,
     `update` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS iplist (
     KEY `update` (`update`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
-CREATE TABLE IF NOT EXISTS iplog (
+CREATE TABLE IF NOT EXISTS phpwall.iplog (
     `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
     `create` datetime NOT NULL,
     `ip` varbinary(16) NOT NULL,
@@ -25,5 +25,5 @@ CREATE TABLE IF NOT EXISTS iplog (
     KEY `ip` (`ip`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
-alter table iplist
-    add expire datetime default current_timestamp not null
+alter table phpwall.iplist
+    add `expire` datetime not null default current_timestamp();

@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 namespace Xakki\PHPWall;
 
 use Exception;
@@ -12,12 +10,15 @@ use Psr\Log\LogLevel;
 
 class Db
 {
-    public const TABLE_MAIN = 'iplist';
-    public const TABLE_LOG = 'iplog';
+    const TABLE_MAIN = 'iplist';
+    const TABLE_LOG = 'iplog';
 
-    private PHPWall $owner;
-    private ?PDO $pdo = null;
-    private array $config;
+    /** @var PHPWall  */
+    private $owner;
+    /** @var PDO  */
+    private $pdo;
+    /** @var array  */
+    private $config;
 
     public function __construct(PHPWall $owner, array $config)
     {
@@ -25,7 +26,10 @@ class Db
         $this->config = $config;
     }
 
-    public function beginTransaction(): bool
+    /**
+     * @return bool
+     */
+    public function beginTransaction()
     {
         $this->connect();
         $res = $this->pdo->beginTransaction();
@@ -35,7 +39,10 @@ class Db
         return true;
     }
 
-    public function commit(): bool
+    /**
+     * @return bool
+     */
+    public function commit()
     {
         if ($this->pdo->inTransaction()) {
             return $this->pdo->commit();
@@ -43,7 +50,12 @@ class Db
         return false;
     }
 
-    public function deleteRow(string $table, array $where): bool
+    /**
+     * @param string $table
+     * @param array $where
+     * @return bool
+     */
+    public function deleteRow($table, array $where)
     {
         $this->connect();
         $q = 'DELETE FROM ' . $table . ' WHERE ';
@@ -67,21 +79,41 @@ class Db
         return $res;
     }
 
-    public function getDataControlViewActive(): array
+    /**
+     * @return array
+     */
+    public function getDataControlViewActive()
     {
         $select = '*';
         $q = '`expire` > NOW()';
         return $this->selectAllSql(self::TABLE_MAIN, [$q], $select, ' ORDER BY `update` DESC LIMIT 1000');
     }
 
-    public function selectAllSql(string $table, array $where, string $select = '*', string $additionQuery = ''): array
+    /**
+     * @param string $table
+     * @param array $where
+     * @param string $select
+     * @param string $additionQuery
+     * @return array
+     * @throws Exception
+     */
+    public function selectAllSql($table, array $where, $select = '*', $additionQuery = '')
     {
         return $this
             ->selectSql($table, $where, $select, $additionQuery)
             ->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public function selectSql(string $table, array $where, string $select = '*', string $additionQuery = '', bool $flag = false): PDOStatement
+    /**
+     * @param string $table
+     * @param array $where
+     * @param string $select
+     * @param string $additionQuery
+     * @param bool $flag
+     * @return PDOStatement
+     * @throws Exception
+     */
+    public function selectSql($table, array $where, $select = '*', $additionQuery = '', $flag = false)
     {
         $this->connect();
         $q = 'SELECT ' . $select . ' FROM ' . $table . ' WHERE ';
@@ -103,6 +135,7 @@ class Db
             $q .= $additionQuery;
         }
 
+        /** @var PDOStatement|false $stmt */
         $stmt = $this->pdo->prepare($q);
         if (!$stmt) {
             throw new PDOException('Cant prepare query');
@@ -135,7 +168,10 @@ class Db
         return $stmt;
     }
 
-    private function migrationRun(): void
+    /**
+     * @return void
+     */
+    private function migrationRun()
     {
         $this->connect();
         $sql = file_get_contents(__DIR__ . '/../migration.sql');
@@ -148,7 +184,10 @@ class Db
         }
     }
 
-    protected function connect(): void
+    /**
+     * @return void
+     */
+    protected function connect()
     {
         if ($this->pdo) {
             return;
@@ -165,14 +204,22 @@ class Db
         );
     }
 
-    public function getDataControlViewSleep(): array
+    /**
+     * @return array
+     * @throws Exception
+     */
+    public function getDataControlViewSleep()
     {
         $select = 'ip,`create`,`update`,request_total,request_session,request_bad,request_bad_days,request_bad_days_up, trust';
         $q = '`expire` <= NOW()';
         return $this->selectAllSql(self::TABLE_MAIN, [$q], $select, ' ORDER BY `update` DESC LIMIT 1000');
     }
 
-    public function getDataControlViewMost(): array
+    /**
+     * @return array
+     * @throws Exception
+     */
+    public function getDataControlViewMost()
     {
         $select = 'ip,`create`,`update`,request_total,request_session,request_bad,request_bad_days,request_bad_days_up, trust';
         $q = '`request_total` > 100';
@@ -181,7 +228,11 @@ class Db
 
     /*******************/
 
-    public function getDataForRestore(): array
+    /**
+     * @return array
+     * @throws Exception
+     */
+    public function getDataForRestore()
     {
         return $this->selectAllSql(
             self::TABLE_MAIN,
@@ -190,7 +241,13 @@ class Db
         );
     }
 
-    public function setIpIsTrust(string $ip, int $trust): void
+    /**
+     * @param string $ip
+     * @param int $trust
+     * @return void
+     * @throws Exception
+     */
+    public function setIpIsTrust($ip, $trust)
     {
         $this->updateSql(
             self::TABLE_MAIN,
@@ -199,7 +256,13 @@ class Db
         );
     }
 
-    public function updateSql(string $table, array $where, array $set): bool
+    /**
+     * @param string $table
+     * @param array $where
+     * @param array $set
+     * @return bool
+     */
+    public function updateSql($table, array $where, array $set)
     {
         $this->connect();
         $q = 'UPDATE ' . $table . ' SET ';
@@ -242,12 +305,24 @@ class Db
         return $res;
     }
 
-    public function getMainByIp(string $ip): array
+    /**
+     * @param string $ip
+     * @return array
+     * @throws Exception
+     */
+    public function getMainByIp($ip)
     {
         return $this->selectOneSql(self::TABLE_MAIN, ['ip' => Tools::convertIp2Number($ip)]);
     }
 
-    public function selectOneSql(string $table, array $where, string $select = '*'): array
+    /**
+     * @param string $table
+     * @param array $where
+     * @param string $select
+     * @return array
+     * @throws Exception
+     */
+    public function selectOneSql($table, array $where, $select = '*')
     {
         $data = $this
             ->selectSql($table, $where, $select, ' FOR UPDATE')
@@ -255,12 +330,25 @@ class Db
         return is_array($data) ? $data : [];
     }
 
-    public function getAllLogByIp(string $ip): array
+    /**
+     * @param string $ip
+     * @return array
+     * @throws Exception
+     */
+    public function getAllLogByIp($ip)
     {
         return $this->selectAllSql(self::TABLE_LOG, ['ip' => Tools::convertIp2Number($ip)]);
     }
 
-    public function addLog(string $ip, int $rule, string $word, int $ipFrc): void
+    /**
+     * @param string $ip
+     * @param int $rule
+     * @param string $word
+     * @param int $ipFrc
+     * @return void
+     * @throws Exception
+     */
+    public function addLog($ip, $rule, $word, $ipFrc)
     {
         $dataLog = [
             'ip' => Tools::convertIp2Number($ip),
@@ -272,7 +360,12 @@ class Db
         $this->insertSql(self::TABLE_LOG, $dataLog);
     }
 
-    public function insertSql(string $table, array $data): int
+    /**
+     * @param string $table
+     * @param array $data
+     * @return int
+     */
+    public function insertSql($table, array $data)
     {
         $this->connect();
         $keys = array_keys($data);
@@ -292,6 +385,8 @@ class Db
             }
         }
         $q .= ')';
+
+        /** @var PDOStatement|false $stmt */
         $stmt = $this->pdo->prepare($q);
         if (!$stmt) {
             throw new PDOException('Cant prepare query');
@@ -309,7 +404,14 @@ class Db
         return 0;
     }
 
-    public function insertBadIp(string $ip, int $ipFrc, int $bunTimeout): array
+    /**
+     * @param string $ip
+     * @param int $ipFrc
+     * @param int $bunTimeout
+     * @return array
+     * @throws Exception
+     */
+    public function insertBadIp($ip, $ipFrc, $bunTimeout)
     {
         $data = [
             'request_total' => $ipFrc,
@@ -333,7 +435,13 @@ class Db
         return $data;
     }
 
-    public function updateBadIp(array $data, int $ipFrc, int $bunTimeout): array
+    /**
+     * @param array $data
+     * @param int $ipFrc
+     * @param int $bunTimeout
+     * @return array
+     */
+    public function updateBadIp(array $data, $ipFrc, $bunTimeout)
     {
         if ($ipFrc <= $data['request_session']) {
             $upd = [
