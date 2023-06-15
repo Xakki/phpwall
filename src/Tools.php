@@ -2,46 +2,66 @@
 
 namespace Xakki\PHPWall;
 
-use Exception;
+use InvalidArgumentException;
 
 class Tools
 {
     /**
-     * @param string $str
-     * @return string|false
+     * Converts a binary IP representation to a human-readable string.
+     *
+     * @param string $binaryIp The packed binary representation of an IP address.
+     * @return string The string representation of the IP address (e.g., \"127.0.0.1\" or \"::1\").
+     * @throws InvalidArgumentException if the binary string is not a valid IPv4 or IPv6 address.
      */
-    public static function convertIp2String($str)
+    public static function convertIp2String($binaryIp)
     {
-        $l = strlen($str);
-        $format = 'A4';
-        if ($l > 5) {
-            $format = 'A16';
+        $length = strlen($binaryIp);
+        if ($length !== 4 && $length !== 16) {
+            throw new InvalidArgumentException('Invalid binary IP address length.');
         }
-        return inet_ntop(pack($format, $str));
+
+        $ipString = inet_ntop($binaryIp);
+
+        if ($ipString === false) {
+            throw new InvalidArgumentException('Failed to convert binary IP to string.');
+        }
+
+        return $ipString;
     }
 
     /**
-     * @param string $ip
-     * @return string
-     * @throws Exception
+     * Converts a human-readable IP address string to its packed binary representation.
+     *
+     * @param string $ip The IP address string (e.g., \"127.0.0.1\" or \"::1\").
+     * @return string The packed binary representation.
+     * @throws InvalidArgumentException if the string is not a valid IPv4 or IPv6 address.
      */
     public static function convertIp2Number($ip)
     {
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-            return current(unpack("A4", inet_pton($ip)));
-        } elseif (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
-            return current(unpack("A16", inet_pton($ip)));
+        $binaryIp = inet_pton($ip);
+        if ($binaryIp === false) {
+            throw new InvalidArgumentException("The provided string is not a valid IPv4 or IPv6 address: {$ip}");
         }
-        throw new Exception("Please supply a valid IPv4 or IPv6 address");
+        return $binaryIp;
     }
 
     /**
-     * @param string $txt
-     * @param string $word
-     * @return string
+     * Highlights a word within a text string by wrapping it in <b> tags.
+     * The text is escaped to prevent XSS.
+     *
+     * @param string $text The text to search within.
+     * @param string $word The word to highlight.
+     * @return string The text with the highlighted word.
      */
-    public static function highLight($txt, $word)
+    public static function highLight($text, $word)
     {
-        return str_replace($word, '<b>' . $word . '</b>', $txt);
+        $escapedText = htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
+        $escapedWord = htmlspecialchars($word, ENT_QUOTES, 'UTF-8');
+
+        if (empty($escapedWord)) {
+            return $escapedText;
+        }
+
+        return str_replace($escapedWord, '<b>' . $escapedWord . '</b>', $escapedText);
     }
 }

@@ -1,20 +1,20 @@
 SHELL = /bin/bash
 ### https://makefiletutorial.com/
 
-docker := docker run -it -v $(PWD):/app phpwall56
-composer := $(docker) composer
+-include ./.env
+export
 
-docker-build:
-	docker build -t phpwall56 .
+docker := docker run -it --rm -v $(PWD):/app -w /app xakki/php:5.6-fpm
+composer := $(docker) composer
 
 bash:
 	$(docker) bash
 
-composer-install:
-	$(composer) install
+composer-i:
+	$(composer) install --prefer-dist --no-scripts
 
-composer-up:
-	$(composer) update $(name)
+composer-u:
+	$(composer) update --prefer-dist $(name)
 
 cs-fix:
 	$(composer) cs-fix
@@ -22,5 +22,18 @@ cs-fix:
 cs-check:
 	$(composer) cs-check
 
-psalm:
-	$(docker) vendor/bin/psalm
+phpunit:
+	$(composer) phpunit
+
+test-ui:
+	@echo
+	@echo "Start webserver on http://localhost:${WEB_PORT_EXT}"
+	@echo "Open panel http://localhost:${WEB_PORT_EXT}?${SECRET_KEY}=1"
+	@echo
+	docker compose up
+	docker compose down
+	@make clear-docker
+
+clear-docker:
+	docker compose rm -f
+	docker volume rm phpwall_mysql_data
