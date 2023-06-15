@@ -3,3 +3,7 @@ composer.phar
 composer.lock
 .phpcs-cache
 vendor/
+/.phpunit.result.cache
+/.env
+/.php_cs.cache
+/.php-cs-fixer.cache
