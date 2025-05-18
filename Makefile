@@ -19,9 +19,6 @@ composer-i:
 composer-u:
 	$(composer) update --prefer-dist --no-scripts $(name)
 
-composer-r:
-	$(composer) r --prefer-dist --no-scripts phpunit/phpunit --dev
-
 cs-fix:
 	$(composer) cs-fix
 

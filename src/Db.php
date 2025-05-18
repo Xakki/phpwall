@@ -172,8 +172,12 @@ class Db
     protected function migrationRun(): void
     {
         $sql = file_get_contents(__DIR__ . '/../migration.sql');
+        if (!$sql) {
+            throw new \ErrorException('Cant read migration.sql');
+        }
+        $flag = $this->connect()->exec($sql);
 
-        if (!$sql || !$this->connect()->exec($sql)) {
+        if ($flag === false) {
             $err = $this->connect()->errorInfo();
             $this->owner->log(LogLevel::ERROR, 'Migration SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
         } else {

@@ -46,9 +46,8 @@
   "scripts": {
     "phpstan": "APP_ENV=testing XDEBUG_MODE=off vendor/bin/phpstan analyse --memory-limit 1G -v",
     "phpstan-clean": "XDEBUG_MODE=off vendor/bin/phpstan clear-result-cache",
-    "cs-check": "XDEBUG_MODE=off vendor/bin/phpcs",
-    "cs-summary": "XDEBUG_MODE=off vendor/bin/phpcs --report=summary",
-    "cs-fix": "XDEBUG_MODE=off vendor/bin/phpcbf",
+    "cs-check": "XDEBUG_MODE=off vendor/bin/phpcs -sp --colors",
+    "cs-fix": "XDEBUG_MODE=off vendor/bin/phpcbf -p",
     "phpunit": "XDEBUG_MODE=off vendor/bin/phpunit -c phpunit.xml --no-coverage"
   }
 }
