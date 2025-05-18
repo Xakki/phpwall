@@ -200,7 +200,7 @@ class Db
             $this->config['password'],
             $this->config['options']
         );
-        $this->connect()->exec('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED');
+        $this->pdo->exec('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED');
         return $this->pdo;
     }
 
