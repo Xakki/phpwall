@@ -1,13 +1,14 @@
 {
   "name": "xakki/phpwall",
-  "version": "0.2.1",
-  "description": "Protect web",
+  "version": "0.8.1",
+  "description": "PHP Web Application Firewall (WAF)",
   "type": "library",
-  "minimum-stability": "dev",
+  "prefer-stable": true,
   "license": "LGPL-2.1",
   "authors": [
     {
-      "name": "Xakki"
+      "name": "Xakki",
+      "email": "dev@xakki.ru"
     }
   ],
   "support": {
@@ -23,8 +24,7 @@
   },
   "require-dev": {
     "phpstan/phpstan": "*",
-    "squizlabs/php_codesniffer": "*",
-    "opsway/psr12-strict-coding-standard": "*",
+    "friendsofphp/php-cs-fixer": "^3.86",
     "phpunit/phpunit": "^10.5"
   },
   "suggest": {
@@ -32,22 +32,19 @@
     "ext-redis": "Cache with redis"
   },
   "config": {
-    "preferred-install": "dist",
-    "allow-plugins": {
-      "dealerdirect/phpcodesniffer-composer-installer": true
-    }
+    "preferred-install": "dist"
   },
   "autoload": {
     "psr-4": {
       "Xakki\\PHPWall\\": "src/",
-      "Xakki\\PHPWallTest\\": "tests/"
+      "Xakki\\PHPWall\\Tests\\": "tests/"
     }
   },
   "scripts": {
     "phpstan": "APP_ENV=testing XDEBUG_MODE=off vendor/bin/phpstan analyse --memory-limit 1G -v",
     "phpstan-clean": "XDEBUG_MODE=off vendor/bin/phpstan clear-result-cache",
-    "cs-check": "XDEBUG_MODE=off vendor/bin/phpcs -sp --colors",
-    "cs-fix": "XDEBUG_MODE=off vendor/bin/phpcbf -p",
-    "phpunit": "XDEBUG_MODE=off vendor/bin/phpunit -c phpunit.xml --no-coverage"
+    "cs-check": "XDEBUG_MODE=off php-cs-fixer fix src --dry-run --diff",
+    "cs-fix": "XDEBUG_MODE=off php-cs-fixer fix src --diff",
+    "phpunit": "XDEBUG_MODE=off vendor/bin/phpunit --no-coverage"
   }
 }

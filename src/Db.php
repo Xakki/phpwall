@@ -8,29 +8,29 @@ use Exception;
 use PDO;
 use PDOException;
 use PDOStatement;
+use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
 
 /**
- * @phpstan-type MainData array{request_total: int, request_session: int, request_bad: int, request_bad_days: int, request_bad_days_up: string, ip: string, create: int, expire: string, ua: string, host: string, trust: int}
- * @phpstan-type DbConfig array{engine: string, port: int, host: string, dbname: string, username: string, password: string, options: string[]}
+ * @phpstan-type MainData array{request_total: int, request_session: int, request_bad: int, request_bad_days: int, request_bad_days_up: string, ip: string, create: string, update: string, expire: string, ua: string, host: string, trust: int}
+ * @phpstan-type DbConfig array{engine: string, port: int, host: string, dbname: string, username: string, password: string, options: array<mixed>}
  */
 class Db
 {
     public const TABLE_MAIN = 'iplist';
     public const TABLE_LOG = 'iplog';
 
-    private PHPWall $owner;
     private ?PDO $pdo = null;
+
     /** @var DbConfig  */
     private array $config;
 
     /**
-     * @param PHPWall $owner
+     * @param ?LoggerInterface $logger
      * @param DbConfig  $config
      */
-    public function __construct(PHPWall $owner, array $config)
+    public function __construct(protected readonly ?LoggerInterface $logger, array $config)
     {
-        $this->owner = $owner;
         $this->config = $config;
     }
 
@@ -51,52 +51,42 @@ class Db
         return false;
     }
 
+    public function rollback(): bool
+    {
+        if ($this->connect()->inTransaction()) {
+            return $this->connect()->rollback();
+        }
+        return false;
+    }
+
     /**
      * @param string $table
-     * @param array<string|int, string|numeric|bool>  $where
+     * @param array<string, string|numeric|bool>  $where
      * @return bool
      */
     public function deleteRow(string $table, array $where): bool
     {
-        $q = 'DELETE FROM ' . $table . ' WHERE ';
-        $f = false;
-        foreach ($where as $k => $v) {
-            if (!$f) {
-                $f = true;
-            } else {
-                $q .= ' AND ';
-            }
-            $q .= '`' . $k . '`=:' . $k;
-        }
+        $whereClause = implode(' AND ', array_map(fn ($key) => "`$key` = :$key", array_keys($where)));
+        $q = 'DELETE FROM ' . $table . ' WHERE ' . $whereClause;
+
         $stmt = $this->connect()->prepare($q);
         $res = $stmt->execute($where);
         $err = $stmt->errorInfo();
         if ($err[1]) {
-            $this->owner->log(LogLevel::ERROR, 'SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
+            $this->logger?->log(LogLevel::ERROR, 'SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
         } else {
-            $this->owner->log(LogLevel::INFO, 'DELETE  `' . $table . '`, WHERE ' . json_encode($where));
+            $this->logger?->log(LogLevel::INFO, 'DELETE  `' . $table . '`, WHERE ' . json_encode($where));
         }
         return $res;
     }
 
-    /**
-     * @return MainData[]
-     * @throws Exception
-     */
-    public function getDataControlViewActive(): array
-    {
-        $select = '*';
-        $q = '`expire` > NOW()';
-        // @phpstan-ignore return.type
-        return $this->selectAllSql(self::TABLE_MAIN, [$q], $select, ' ORDER BY `update` DESC LIMIT 1000');
-    }
 
     /**
      * @param string $table
      * @param array<string|int, string|numeric|bool>  $where
      * @param string $select
      * @param string $additionQuery
-     * @return array<string, string|numeric|bool>
+     * @return array<int, array<string, mixed>>
      * @throws Exception
      */
     public function selectAllSql(string $table, array $where, string $select = '*', string $additionQuery = ''): array
@@ -117,20 +107,18 @@ class Db
      */
     public function selectSql(string $table, array $where, string $select = '*', string $additionQuery = '', bool $flag = false): PDOStatement
     {
-        $q = 'SELECT ' . $select . ' FROM ' . $table . ' WHERE ';
-        $f = false;
-        foreach ($where as $k => $v) {
-            if (!$f) {
-                $f = true;
+        $whereParts = [];
+        $bind = [];
+        foreach ($where as $key => $value) {
+            if (is_numeric($key)) {
+                $whereParts[] = $value;
             } else {
-                $q .= ' AND ';
-            }
-            if (is_string($k)) {
-                $q .= '`' . $k . '`=:' . $k;
-            } else {
-                $q .= $v;
+                $whereParts[] = "`$key` = :$key";
+                $bind[$key] = $value;
             }
         }
+        $q = 'SELECT ' . $select . ' FROM ' . $table . ' WHERE ' . implode(' AND ', $whereParts);
+
 
         if ($additionQuery) {
             $q .= $additionQuery;
@@ -141,14 +129,9 @@ class Db
         if (!$stmt) {
             throw new PDOException('Cant prepare query');
         }
-        $bind = [];
-        foreach ($where as $k => $v) {
-            if (is_string($k)) {
-                $bind[$k] = $v;
-            }
-        }
+
         try {
-            $res = $stmt->execute($bind);
+            $stmt->execute($bind);
         } catch (Exception $e) {
             if ($e->getCode() == '42S02') {
                 $this->migrationRun();
@@ -164,7 +147,7 @@ class Db
             }
             throw new Exception('SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
         } else {
-            $this->owner->log(LogLevel::INFO, 'SELECT `' . $table . '`, WHERE ' . json_encode($where));
+            $this->logger?->log(LogLevel::INFO, 'SELECT `' . $table . '`, WHERE ' . json_encode($where));
         }
         return $stmt;
     }
@@ -179,9 +162,9 @@ class Db
 
         if ($flag === false) {
             $err = $this->connect()->errorInfo();
-            $this->owner->log(LogLevel::ERROR, 'Migration SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
+            $this->logger?->log(LogLevel::ERROR, 'Migration SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
         } else {
-            $this->owner->log(LogLevel::INFO, 'Migration success');
+            $this->logger?->log(LogLevel::INFO, 'Migration success');
         }
     }
 
@@ -205,25 +188,30 @@ class Db
     }
 
     /**
+     * @param string[] $where
+     * @param string $orderBy
      * @return MainData[]
      */
-    public function getDataControlViewSleep(): array
+    private function getDataControlView(array $where, string $orderBy): array
     {
-        $select = 'ip,`create`,`update`,request_total,request_session,request_bad,request_bad_days,request_bad_days_up, trust';
-        $q = '`expire` <= NOW()';
+        $select = '*, INET6_NTOA(ip) as ip';
         // @phpstan-ignore return.type
-        return $this->selectAllSql(self::TABLE_MAIN, [$q], $select, ' ORDER BY `update` DESC LIMIT 1000');
+        return $this->selectAllSql(self::TABLE_MAIN, $where, $select, " ORDER BY $orderBy DESC LIMIT 1000");
     }
 
-    /**
-     * @return MainData[]
-     */
+    public function getDataControlViewActive(): array
+    {
+        return $this->getDataControlView(['`expire` > NOW()'], '`update`');
+    }
+
+    public function getDataControlViewSleep(): array
+    {
+        return $this->getDataControlView(['`expire` <= NOW()'], '`update`');
+    }
+
     public function getDataControlViewMost(): array
     {
-        $select = 'ip,`create`,`update`,request_total,request_session,request_bad,request_bad_days,request_bad_days_up, trust';
-        $q = '`request_total` > 100';
-        // @phpstan-ignore return.type
-        return $this->selectAllSql(self::TABLE_MAIN, [$q], $select, ' ORDER BY `request_total` DESC LIMIT 1000');
+        return $this->getDataControlView(['`request_total` > 100'], '`request_total`');
     }
 
     /*******************/
@@ -237,62 +225,58 @@ class Db
         return $this->selectAllSql(
             self::TABLE_MAIN,
             ['`expire` > NOW()'],
-            'ip,`update`,request_session,request_bad_days,request_bad,trust'
+            '*, INET6_NTOA(ip) as ip'
         );
     }
 
-    public function setIpIsTrust(string $ip, int $trust): void
+    public function setIpIsTrust(string $ip, int $trust, int $expirationSecond): void
     {
         $this->updateSql(
             self::TABLE_MAIN,
-            ['ip' => Tools::convertIp2Number($ip)],
-            ['trust' => $trust, 'expire=NOW()']
+            ['ip=INET6_ATON("'.$ip.'")'],
+            ['trust' => $trust, 'expire=TIMESTAMPADD(SECOND,'.$expirationSecond.',NOW())']
         );
     }
 
     /**
      * @param string $table
-     * @param array<string, string|numeric|bool>  $where
+     * @param array<string|int, string|numeric|bool>  $where
      * @param array<string|numeric, string|numeric|bool>  $set
      * @return bool
      */
     public function updateSql(string $table, array $where, array $set): bool
     {
-        $q = 'UPDATE ' . $table . ' SET ';
-        $f = false;
+        $setParts = [];
+        $setBind = [];
         foreach ($set as $k => $v) {
-            if (!$f) {
-                $f = true;
-            } else {
-                $q .= ',';
-            }
             if (is_numeric($k)) {
-                $q .= $v;
-                unset($set[$k]);
+                $setParts[] = (string) $v;
             } else {
-                $q .= '`' . $k . '`=:' . $k;
+                $setParts[] = '`' . $k . '`=:' . $k;
+                $setBind[$k] = $v;
             }
         }
-        $q .= ' WHERE ';
 
-        $f = false;
+        $whereParts = [];
         foreach ($where as $k => $v) {
-            if (!$f) {
-                $f = true;
+            if (is_numeric($k)) {
+                $whereParts[] = $v;
             } else {
-                $q .= ' AND ';
+                $whereParts[] = '`' . $k . '`=:' . $k;
+                $setBind[$k] = $v;
             }
-            $q .= '`' . $k . '`=:' . $k;
         }
+
+        $q = 'UPDATE ' . $table . ' SET ' . implode(', ', $setParts) . ' WHERE ' . implode(' AND ', $whereParts);
 
         $stmt = $this->connect()->prepare($q);
 
-        $res = $stmt->execute($set + $where);
+        $res = $stmt->execute($setBind);
         $err = $stmt->errorInfo();
         if ($err[1]) {
-            $this->owner->log(LogLevel::ERROR, 'SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
+            $this->logger?->log(LogLevel::ERROR, 'SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
         } else {
-            $this->owner->log(LogLevel::INFO, 'UPDATE `' . $table . '`, SET ' . json_encode($set) . ', WHERE ' . json_encode($where));
+            $this->logger?->log(LogLevel::INFO, 'UPDATE `' . $table . '`, SET ' . json_encode($set) . ', WHERE ' . json_encode($where));
         }
 
         return $res;
@@ -305,14 +289,14 @@ class Db
      */
     public function getMainByIp(string $ip): array
     {
-        return $this->selectOneSql(self::TABLE_MAIN, ['ip' => Tools::convertIp2Number($ip)]);
+        return $this->selectOneSql(self::TABLE_MAIN, ['ip=INET6_ATON("'.$ip.'")'], '*, INET6_NTOA(ip) as ip');
     }
 
     /**
      * @param string $table
-     * @param array<string, string|numeric|bool>  $where
+     * @param array<string|int, string|numeric|bool>  $where
      * @param string $select
-     * @return array<string, string|numeric|bool>|array{}
+     * @return array<string, mixed>|array{}
      * @throws Exception
      */
     public function selectOneSql(string $table, array $where, string $select = '*'): array
@@ -320,21 +304,20 @@ class Db
         $data = $this
             ->selectSql($table, $where, $select, ' FOR UPDATE')
             ->fetch(PDO::FETCH_ASSOC);
-        // @phpstan-ignore return.type
         return is_array($data) ? $data : [];
     }
 
     public function getAllLogByIp(string $ip): array
     {
-        return $this->selectAllSql(self::TABLE_LOG, ['ip' => Tools::convertIp2Number($ip)]);
+        return $this->selectAllSql(self::TABLE_LOG, ['ip=INET6_ATON("'.$ip.'")']);
     }
 
     public function addLog(string $ip, int $rule, string $word, int $ipFrc): void
     {
         $dataLog = [
-            'ip' => Tools::convertIp2Number($ip),
+            'ip' => $ip,
             'rule' => $rule,
-            'data' => substr($word, 0, 254),
+            'data' => mb_substr($word, 0, 254),
             'try' => $ipFrc,
             'create' => 0,
         ];
@@ -348,44 +331,45 @@ class Db
      */
     public function insertSql(string $table, array $data): int
     {
+        $bindData = $data;
+        $valuePlaceholders = [];
+
         $keys = array_keys($data);
-        $q = 'INSERT INTO ' . $table . ' (`' . implode('`, `', $keys) . '`) VALUES (';
-        $f = false;
-        foreach ($data as $key => $v) {
-            if (!$f) {
-                $f = true;
+        foreach ($keys as $key) {
+            if ($key === 'create' || $key === 'update') {
+                $valuePlaceholders[] = 'NOW()';
+                unset($bindData[$key]);
+            } elseif ($key === 'ip') {
+                $valuePlaceholders[] = 'INET6_ATON("'.$bindData[$key].'")';
+                unset($bindData[$key]);
             } else {
-                $q .= ', ';
-            }
-            if ($key == 'create') {
-                $q .= 'NOW()';
-                unset($data[$key]);
-            } else {
-                $q .= ':' . $key;
+                $valuePlaceholders[] = ':' . $key;
             }
         }
-        $q .= ')';
+
+        $q = 'INSERT INTO ' . $table . ' (`' . implode('`, `', $keys) . '`) VALUES (' . implode(', ', $valuePlaceholders) . ')';
+
         $stmt = $this->connect()->prepare($q);
         if (!$stmt) {
             throw new PDOException('Cant prepare query');
         }
 
-        $stmt->execute($data);
+        $stmt->execute($bindData);
         $err = $stmt->errorInfo();
         if (!$err[1]) {
             $id = $this->connect()->lastInsertId();
-            $this->owner->log(LogLevel::INFO, 'INSERT `' . $table . '`, ID = ' . $id);
+            $this->logger?->log(LogLevel::INFO, 'INSERT `' . $table . '`, ID = ' . $id);
             return (int)$id;
         }
 
-        $this->owner->log(LogLevel::ERROR, 'SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
+        $this->logger?->log(LogLevel::ERROR, 'SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
         return 0;
     }
 
     /**
      * @return MainData
      */
-    public function insertBadIp(string $ip, int $ipFrc, int $bunTimeout): array
+    public function insertBadIp(string $ip, string $userAgent, int $ipFrc, int $bunTimeout, string $hostname, int $trust): array
     {
         $data = [
             'request_total' => $ipFrc,
@@ -393,17 +377,14 @@ class Db
             'request_bad' => 1,
             'request_bad_days' => 1,
             'request_bad_days_up' => date('Y-m-d'),
-            'ip' => Tools::convertIp2Number($ip),
-            'create' => 0,
+            'ip' => $ip,
+            'create' => date('Y-m-d H:i:s'),
+            'update' => date('Y-m-d H:i:s'),
             'expire' => date('Y-m-d H:i:s', time() + $bunTimeout),
-            'ua' => !empty($_SERVER['HTTP_USER_AGENT']) ? mb_substr((string) $_SERVER['HTTP_USER_AGENT'], 0, 255) : '',
-            'host' => substr(gethostbyaddr($ip) ?: '', -128),
-            'trust' => PHPWall::TRUST_DEFAULT,
+            'ua' => mb_substr($userAgent, 0, 255),
+            'host' => substr($hostname, -128),
+            'trust' => $trust,
         ];
-
-        if ($this->owner->isTrustIp($data['host'])) {
-            $data['trust'] = PHPWall::TRUST_SEARCH;
-        }
 
         $this->insertSql(self::TABLE_MAIN, $data);
         return $data;
@@ -417,22 +398,19 @@ class Db
      */
     public function updateBadIp(array $data, int $ipFrc, int $bunTimeout): array
     {
+        $upd = [
+            'expire' => date('Y-m-d H:i:s', time() + $bunTimeout),
+            'request_session' => $ipFrc,
+        ];
+
         if ($ipFrc <= $data['request_session']) {
-            $upd = [
-                'expire' => date('Y-m-d H:i:s', time() + $bunTimeout),
-                'request_total' => $data['request_total'] + $ipFrc,
-                'request_session' => $ipFrc,
-                'request_bad' => $data['request_bad'] + $ipFrc,
-            ];
+            $requestsToAdd = $ipFrc;
         } else {
-            $diff = $ipFrc - $data['request_session'];
-            $upd = [
-                'expire' => date('Y-m-d H:i:s', time() + $bunTimeout),
-                'request_total' => $data['request_total'] + $diff,
-                'request_session' => $ipFrc,
-                'request_bad' => $data['request_bad'] + $diff,
-            ];
+            $requestsToAdd = $ipFrc - (int)$data['request_session'];
         }
+        $upd['request_total'] = (int)$data['request_total'] + $requestsToAdd;
+        $upd['request_bad'] = (int)$data['request_bad'] + $requestsToAdd;
+
 
         if ($data['request_bad_days_up'] != date('Y-m-d')) {
             $upd['request_bad_days'] = (int)$data['request_bad_days'] + 1;

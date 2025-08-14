@@ -4,24 +4,32 @@ declare(strict_types=1);
 
 namespace Xakki\PHPWall;
 
+use RuntimeException;
 use Xakki\PHPWall\CacheDrivers\CacheInterface;
 use Xakki\PHPWall\CacheDrivers\Memcached;
 use Xakki\PHPWall\CacheDrivers\Redis;
 
+/**
+ * @phpstan-type CacheServer array{host: string, port: int}
+ * @phpstan-type IpInfo array{ip: string, time: int, trust: int, bunTimeout: int, cnt: int}
+ */
 class Cache
 {
     private ?CacheInterface $conn = null;
 
     public function __construct(
         private readonly PHPWall $owner,
-        /** string[] */
+        /** @var string[] */
         private readonly array $memCacheServers,
-        /** array<string, string|numeric|bool> */
+        /** @var CacheServer */
         private readonly array $redisCacheServer,
         private readonly string $cachePrefix
     ) {
     }
 
+    /**
+     * @throws RuntimeException
+     */
     protected function connect(): CacheInterface
     {
         if ($this->conn) {
@@ -30,8 +38,10 @@ class Cache
 
         if ($this->memCacheServers) {
             $this->conn = new Memcached($this->memCacheServers, $this->cachePrefix);
-        } else {
+        } elseif ($this->redisCacheServer) {
             $this->conn = new Redis($this->redisCacheServer, $this->cachePrefix);
+        } else {
+            throw new RuntimeException('No cache driver configured.');
         }
 
         $this->owner->restoreCache();
@@ -61,16 +71,18 @@ class Cache
 
     /**************************************/
 
-    public function setIpIsTrust(string $ip, int $trust): void
+    public function setIpIsTrust(string $ip, int $trust, int $expirationSecond): void
     {
-        $key = $this->getKeyIp($ip);
-        $this->delete($key);
-        $this->delete($key . '-bunTimeout');
-        $this->set($key . '-trust', $trust);
+        $baseKey = $this->getKeyIp($ip);
+        $this->delete($baseKey);
+        $this->delete($baseKey . '-bunTimeout');
+        $this->delete($baseKey . '-time');
+        $this->set($baseKey . '-trust', $trust, $expirationSecond);
     }
 
     protected function getKeyIp(string $ip): string
     {
+        // It is not necessary to add a prefix here, because the driver already adds it.
         return $ip;
     }
 
@@ -92,14 +104,17 @@ class Cache
     public function setIpCache(string $ip, int $banTimeOut, ?int $trust = null): void
     {
         $key = $this->getKeyIp($ip);
-        if (!is_null($trust)) {
-            $this->set($key . '-trust', $trust, $banTimeOut);
-        } else {
-            $banTimeOutCache = (int) $this->get($key . '-bunTimeout');
-            if ($banTimeOutCache) {
-                $banTimeOut = $banTimeOutCache;
-            }
+
+        // If a ban timeout is already cached, use it to extend the ban.
+        $banTimeOutCache = (int) $this->get($key . '-bunTimeout');
+        if ($banTimeOutCache > 0) {
+            $banTimeOut = $banTimeOutCache;
         }
+
+        if ($trust !== null) {
+            $this->set($key . '-trust', $trust, $banTimeOut);
+        }
+
         $this->set($key . '-time', time(), $banTimeOut);
         $this->set($key . '-bunTimeout', $banTimeOut, $banTimeOut);
         $this->inc($key);
@@ -112,6 +127,7 @@ class Cache
     public function getIpInfo(string $ip): array
     {
         $key = $this->getKeyIp($ip);
+        // This could be optimized by using a `getMultiple` command if the cache driver supports it.
         return [
             'ip' => $ip,
             'time' => (int) $this->get($key . '-time'),
