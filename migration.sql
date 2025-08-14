@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS iplist (
     `trust` tinyint(1),
     `host` varchar(128),
     `ua` varchar(255),
+    `expire` datetime  default current_timestamp() not null,
     PRIMARY KEY (`ip`),
     KEY `update` (`update`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
@@ -25,5 +26,3 @@ CREATE TABLE IF NOT EXISTS iplog (
     KEY `ip` (`ip`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
-alter table iplist
-    add expire datetime default current_timestamp not null

@@ -1,0 +1,77 @@
+
+services:
+    php:
+        image: xakki/phpwall-php:8.1
+        build:
+            context: .
+        restart: unless-stopped
+        working_dir: /app
+        stop_grace_period: 1s
+        stop_signal: SIGTERM
+        command: sh -c 'php -S 0.0.0.0:8000 /app/example/index.php'
+        volumes:
+            - .:/app
+        environment:
+            TZ: UTC
+            SECRET_KEY: ${SECRET_KEY:-someSecretKey}
+            GOOGLE_CAPTCHA_KEY: ${GOOGLE_CAPTCHA_KEY}
+            GOOGLE_CAPTCHA_SECRET: ${GOOGLE_CAPTCHA_SECRET}
+            MARIADB_DATABASE: phpwall
+            MARIADB_USER: phpwall
+            MARIADB_PASSWORD: pass123
+            REDIS_HOST: redis
+            MARIADB_HOST: mariadb
+        networks:
+            - default
+        ports:
+            - "${WEB_PORT_EXT:-89}:8000"
+
+    mariadb:
+        image: mariadb:11
+        restart: unless-stopped
+        stop_signal: SIGTERM
+        stop_grace_period: 30s
+        working_dir: /scripts
+        volumes:
+            - mysql_data:/var/lib/mysql
+            - ./migration.sql:/docker-entrypoint-initdb.d/migration.sql
+        environment:
+            TZ: UTC
+            MARIADB_DATABASE: phpwall
+            MARIADB_USER: phpwall
+            MARIADB_PASSWORD: pass123
+            MARIADB_ROOT_PASSWORD: pass123
+            MARIADB_AUTO_UPGRADE: 1
+            MARIADB_HEALTHCHECK_USER: healthcheck
+            MARIADB_HEALTHCHECK_PASSWORD: pass123
+        ports:
+            - "${MARIADB_PORT_EXT:-3307}:3306"
+        networks:
+            - default
+        healthcheck:
+            test: [ "CMD", "healthcheck.sh", "--su-mysql", "--connect", "--innodb_initialized" ]
+            interval: 15s # Interval between health checks.
+            timeout: 3s # Timeout for each health checking.
+            retries: 5 # Hou many times retries.
+            start_period: 5s # Estimated time to boot.
+
+    memcached:
+        image: memcached:alpine
+        restart: unless-stopped
+
+    redis:
+        image: eqalpha/keydb:latest
+        restart: unless-stopped
+        stop_signal: SIGTERM
+        volumes:
+            - redis_data:/data
+        networks:
+            - default
+volumes:
+    mysql_data:
+    redis_data:
+
+networks:
+    default:
+        driver: bridge
+        name: "${COMPOSE_PROJECT_NAME}-network"

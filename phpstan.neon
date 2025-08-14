@@ -5,4 +5,3 @@ parameters:
     ignoreErrors:
         - '#no value type specified in iterable type array#'
         - '#Cannot cast mixed to#'
-        - '#has an unused parameter#'

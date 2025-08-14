@@ -7,24 +7,27 @@ namespace Xakki\PHPWall;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
 use Stringable;
+use Throwable;
+use PDO;
 
 /**
  * @phpstan-import-type MainData from DB
  * @phpstan-import-type DbConfig from DB
+ * @phpstan-import-type CacheServer from Cache
  */
 class PHPWall
 {
-    public const VERSION = '0.8.1';
+    public const VERSION = '0.8.2';
 
     public const RULE_IP = 0;
     public const RULE_UA = 1;
     public const RULE_POST = 2;
     public const RULE_URL = 3;
 
-    public const TRUST_DEFAULT = 0; // no trust
-    public const TRUST_SEARCH = 10; // If matched by trustHosts
+    public const TRUST_DEFAULT = 0; // No trust
+    public const TRUST_WHITE_LIST = 10; // If matched by trustHosts
     public const TRUST_CAPTCHA = 1; // If passed the captcha
-    public const TRUST_CONTROL = 2; // If entered into panel
+    public const TRUST_CONTROL = 2; // If whitelisted from the panel
 
     public const POST_WALL_NAME = 'unbunme';
     public const KEY_CACHE_INIT = 'phpWallInit';
@@ -35,21 +38,23 @@ class PHPWall
             'Home' => 'На главную',
             'Attention' => 'Внимание',
             'Your IP [{$0}] has been blocked for suspicious activity.' => 'Ваш IP [{$0}] был заблокирован за подозрительную активность.',
-            'If you want to remove the lock, then pass the check out.' => 'Если вы хотите снять блокировку, то пройдите проверку.',
-            'Unbun' => 'Разблокировать',
+            'If you want to remove the lock, please complete the check.' => 'Если вы хотите снять блокировку, то пройдите проверку.',
+            'Unblock' => 'Разблокировать',
             'Captcha not valid! Try again.' => 'Проверка не пройдена. Попробуйте еще.',
         ],
-        'en' => [],
+        'en' => [
+            'Home' => 'Home',
+            'Attention' => 'Attention',
+            'Your IP [{$0}] has been blocked for suspicious activity.' => 'Your IP [{$0}] has been blocked for suspicious activity.',
+            'If you want to remove the lock, please complete the check.' => 'If you want to remove the lock, please complete the check.',
+            'Unblock' => 'Unblock',
+            'Captcha not valid! Try again.' => 'Captcha not valid! Try again.',
+        ],
     ];
 
-    /** @var string[] */
+    /** @var (string|callable)[] */
     protected array $trustHosts = [
-        'ya.ru',
-        'yandex.ru',
-        'yandex.com',
-        'google.com',
-        'bing.com',
-        'yahoo.com',
+        'ya.ru', 'yandex.ru', 'yandex.com', 'google.com', 'bing.com', 'yahoo.com',
     ];
 
     /** @var DbConfig */
@@ -60,423 +65,531 @@ class PHPWall
         'dbname' => 'phpwall',
         'username' => 'phpwall',
         'password' => 'CHANGE_ME',
-        'options' => [],
+        'options' => [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_PERSISTENT => true,
+            PDO::ATTR_STRINGIFY_FETCHES => false
+        ],
     ];
 
-    /** @var string[] */
+    /**
+     * Disabled by default
+     * @var array<string>
+     */
     protected array $memCacheServers = [
-        //'127.0.0.1:11211',
+        //'localhost:11211',
     ];
 
-    /** @var array<string, string|numeric|bool> */
+    /**
+     * Enable by default
+     * @var CacheServer
+     */
     protected array $redisCacheServer = [
-        'host'           => '127.0.0.1',
-        'port'           => 6379,
-        'readTimeout'    => 2.5,
+        'host' => '127.0.0.1',
+        'port' => 6379,
+        'readTimeout' => 2.5,
         'connectTimeout' => 2.5,
-        'persistent'     => true,
-        'database'       => 0, // use default (first) DB
+        'persistent' => true,
+        'database' => 0,
     ];
 
-    /** @var array<int, string|callable> */
-    protected array $checkUrlKeyword = [];
-    /** @var array<int, string|callable> */
+    /** @var (string|callable)[] */
+    protected array $checkUrlKeyword = [
+        '#eval\(#',
+        '#\/sqlite#',
+        '#\/manager#',
+        '#\/setup#',
+        '#\/admin#',
+        '#\/pma#',
+        '#\/phpma#',
+        '#\/phpmyadmin#',
+        '#\/myadmin#',
+        '#\/phpadmin#',
+        '#\/mysqladmin#',
+        '#\/wp\-login#',
+        '#\/wp\-content#',
+        '#\/administrator#',
+        '#\/wp\-admin#',
+        '#\/wp\-includes#',
+        '#\/wordpress#',
+        '#\/mod_stats\.xml#',
+        '#\/mscms#',
+        '#\/\.ssh#',
+        '#\/\.git#',
+        '#\/xmlrpc\.php#',
+        '#\/wallet\.dat#',
+        '#\/\.bash_history#',
+        '#\/webalizer#',
+        '#\/wstat#',
+        '#\/fckeditor\/editor#',
+    ];
+
+    /** @var (string|callable)[] */
     protected array $checkUrlKeywordExclude = [];
-    /** @var array<int, string|callable> */
-    protected array $checkUaKeyword = [];
-    /** @var array<int, string|callable> */
+
+    /** @var (string|callable)[] */
+    protected array $checkUaKeyword = [
+        '#GuzzleHttp#i',
+        '#eval\(#i',
+        '#curl#i',
+        '#<script>#i',
+        '#select #ui',
+    ];
+
+    /** @var (string|callable)[] */
     protected array $checkUaKeywordExclude = [];
-    /** @var array<int, string|callable> */
-    protected array $checkPostKeyword = [];
-    /** @var array<int, string|callable> */
+
+    /** @var (string|callable)[] */
+    protected array $checkPostKeyword = [
+        '#eval\(#',
+        '#curl#',
+    ];
+
+    /** @var (string|callable)[] */
     protected array $checkPostKeywordExclude = [];
 
-    /////////////////////////////////////////////////
-
-    private string $userIp;
-    // Cached IP request frequency
+    private string $userIp = '';
+    private string $userAgent = '';
     private int $ipFrc = 0;
     private string $errorMessage = '';
-    private Cache $cache;
-    private Db $db;
+    // @phpstan-ignore-next-line
+    private readonly Cache $cache;
+    // @phpstan-ignore-next-line
+    private readonly Db $db;
+    private ?string $lang = null;
 
     public function __construct(
-        protected readonly string $secretRequest,
-        protected readonly string $googleCaptchaSiteKey,
-        protected readonly string $googleCaptchaSecretKey,
+        protected readonly string $secretRequest = 'CHANGE_ME',
+        protected readonly string $googleCaptchaSiteKey = 'CHANGE_ME',
+        protected readonly string $googleCaptchaSecretKey = 'CHANGE_ME',
         protected readonly ?LoggerInterface $logger = null,
-        protected readonly bool $debug = false, // set debug mode
-        protected readonly int $try = 2, // Allowed try bad request before get bun
-        protected readonly bool $allowLogRequest = true, // save request log
+        protected readonly int $debug = 0,
+        protected readonly int $try = 2,
+        protected readonly bool $allowLogRequest = true,
         protected readonly string $cachePrefix = 'phpwall',
         protected readonly string $wallTpl = 'ban-view.php',
-        protected readonly int $banTimeOut = 86400 * 3,
+        protected readonly int $banTimeOut = 259200,
         protected readonly int $banTimeOutEachDay = 43200,
         protected readonly int $banTimeOutEachRequest = 3600,
-        protected readonly int $evilFr = 20, // If session bad request more that evilFr, then less work with DB
-        protected readonly int $ddosFr = 100, // Force self redirect
-        protected readonly bool $checkUrl = true, // if need check by url
-        protected readonly bool $checkUa = true, // if need check by user_agent
-        protected readonly bool $checkUaEmpty = false, // if need check user_agent for empty
-        protected readonly bool $checkPost = true, // if need check by POST
-        protected string|EnumRedirectType $redirectByIp = EnumRedirectType::REDIRECT_TYPE_INFO, // `self` | `info` | custom url  // action if ban by IP
-        protected string|EnumRedirectType $redirectByCheck = EnumRedirectType::REDIRECT_TYPE_INFO, // `self` | `info` | custom url // action if bun by over check
-        protected bool $checkIp = true, // if need check by IP
-        protected ?string $lang = null, // Default locale en
-        /** @var ?array<string, string|numeric|bool> */
+        protected readonly int $trustControlTimeout = 3600,
+        protected readonly int $evilFr = 20,
+        protected readonly int $ddosFr = 100,
+        protected readonly bool $checkUrl = true,
+        protected readonly bool $checkUa = true,
+        protected readonly bool $checkUaEmpty = true,
+        protected readonly bool $checkPost = true,
+        protected string|EnumRedirectType $redirectByIp = EnumRedirectType::REDIRECT_TYPE_INFO,
+        protected string|EnumRedirectType $redirectByCheck = EnumRedirectType::REDIRECT_TYPE_INFO,
+        protected bool $checkIp = true,
+        // Overridable properties
+        ?string $lang = null,
         ?array $dbPdo = null,
-        /** @var ?array<int, string> */
         ?array $memCacheServers = null,
-        /** @var ?array<string, string|numeric|bool> */
         ?array $redisCacheServer = null,
-        /** @var ?array<int, string> */
         ?array $trustHosts = null,
-        /** @var ?array<string, array<string, string>> */
         ?array $locale = null,
-        /** @var ?array<int, string|callable> */
         ?array $checkUrlKeyword = null,
-        /** @var ?array<int, string|callable> */
         ?array $checkUrlKeywordExclude = null,
-        /** @var ?array<int, string|callable> */
         ?array $checkUaKeyword = null,
-        /** @var ?array<int, string|callable> */
         ?array $checkUaKeywordExclude = null,
-        /** @var ?array<int, string|callable> */
         ?array $checkPostKeyword = null,
-        /** @var ?array<int, string|callable> */
-        ?array $checkPostKeywordExclude = null,
+        ?array $checkPostKeywordExclude = null
     ) {
+        if (isset($_SERVER['argv']) && isset($_SERVER['SHELL']) && !defined('PHPUNIT_INIT')) {
+            $this->cache = $this->getCache();
+            $this->db = $this->getDb();
+            return;
+        }
+        $this->lang = $lang;
+        // Merge configurations
+        // @phpstan-ignore assign.propertyType
+        $this->dbPdo = array_merge($this->dbPdo, $dbPdo ?? []);
+        if ($this->dbPdo['password'] === 'CHANGE_ME' || $this->secretRequest === 'CHANGE_ME') {
+            $this->cache = $this->getCache();
+            $this->db = $this->getDb();
+            exit('CRITICAL: Please change the default value of `CHANGE_ME` to something more complicated.');
+        }
+        $this->memCacheServers = array_merge($this->memCacheServers, $memCacheServers ?? []);
+        // @phpstan-ignore assign.propertyType
+        $this->redisCacheServer = array_merge($this->redisCacheServer, $redisCacheServer ?? []);
+        $this->trustHosts = array_merge($this->trustHosts, $trustHosts ?? []);
+        $this->locale = array_merge($this->locale, $locale ?? []);
+
+        // Merge rules, including defaults from static methods
+        $this->checkUrlKeyword = array_merge($this->checkUrlKeyword, $checkUrlKeyword ?? []);
+        $this->checkUrlKeywordExclude = array_merge($this->checkUrlKeywordExclude, $checkUrlKeywordExclude ?? []);
+        $this->checkUaKeyword = array_merge($this->checkUaKeyword, $checkUaKeyword ?? []);
+        $this->checkUaKeywordExclude = array_merge($this->checkUaKeywordExclude, $checkUaKeywordExclude ?? []);
+        $this->checkPostKeyword = array_merge($this->checkPostKeyword, $checkPostKeyword ?? []);
+        $this->checkPostKeywordExclude = array_merge($this->checkPostKeywordExclude, $checkPostKeywordExclude ?? []);
+
         try {
-            foreach (
-                [
-                    'checkUrlKeyword',
-                    'checkUrlKeywordExclude',
-                    'checkUaKeyword',
-                    'checkUaKeywordExclude',
-                    'checkPostKeyword',
-                    'checkPostKeywordExclude',
-                ] as $prop
-            ) {
-                $method = 'getRule' . ucfirst($prop);
-                if (method_exists($this, $method)) {
-                    $this->$prop = call_user_func([$this, $method]);
-                }
-            }
-
-            foreach (
-                [
-                    'dbPdo',
-                    'memCacheServers',
-                    'redisCacheServer',
-                    'trustHosts',
-                    'locale',
-                    'checkUrlKeyword',
-                    'checkUrlKeywordExclude',
-                    'checkUaKeyword',
-                    'checkUaKeywordExclude',
-                    'checkPostKeyword',
-                    'checkPostKeywordExclude',
-                ] as $prop
-            ) {
-                // @phpstan-ignore argument.type
-                if (is_array($$prop) && count($$prop)) {
-                    // @phpstan-ignore-next-line
-                    $this->$prop = array_merge($this->$prop, $$prop);
-                }
-            }
-
-            if (!count($this->memCacheServers) && !count($this->redisCacheServer)) {
-                throw new \Error('PHPWall: memCacheServers or redisCacheServer is require.');
-            }
-
-            $this->setUserIp();
+            $this->setUserData();
             $this->setLang();
 
             $this->cache = $this->getCache();
             $this->db = $this->getDb();
 
-            $this->initView();
+            if ($this->handleViewRequest()) {
+                return; // View request was handled and exited
+            }
+
+            if (str_starts_with($this->userIp, '172.') || str_starts_with($this->userIp, '127.')) {
+                return;
+            }
+
             $this->init();
         } catch (\Throwable $e) {
             $this->log(LogLevel::ERROR, $e);
         }
     }
 
+    /**
+     * @return Cache
+     */
     protected function getCache(): Cache
     {
         return new Cache($this, $this->memCacheServers, $this->redisCacheServer, $this->cachePrefix);
     }
 
+    /**
+     * @return Db
+     */
     protected function getDb(): Db
     {
         return new Db($this, $this->dbPdo);
     }
 
-    protected function initView(): void
+    /**
+     * @return bool
+     */
+    protected function handleViewRequest(): bool
     {
-        if (!empty($_GET[$this->secretRequest])) {
-            if ($this->secretRequest == 'CHANGE_ME') {
-                exit('CHANGE the secretReques');
-            }
-
-            try {
-                new View($this, $this->db, $this->cache, $this->secretRequest);
-            } catch (\Throwable $e) {
-                $this->log(LogLevel::CRITICAL, $e);
-                exit('View has error');
-            }
+        if (empty($_GET[$this->secretRequest])) {
+            return false;
         }
+
+        try {
+            $view = new View($this, $this->db, $this->cache, $this->secretRequest);
+            $view->dispatch(); // This will exit
+        } catch (Throwable $e) {
+            $this->log(LogLevel::CRITICAL, $e);
+            exit('PHPWall: View has encountered a critical error.');
+        }
+        return true;
     }
 
-    protected function setUserIp(): void
+    /**
+     * @return void
+     */
+    protected function setUserData(): void
     {
-        if (isset($_SERVER['HTTP_X_REMOTE_ADDR'])) {
-            $this->userIp = (string) $_SERVER['HTTP_X_REMOTE_ADDR'];
-        } else {
-            $this->userIp = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+        // Order of checks is important. HTTP_X_FORWARDED_FOR can be spoofed.
+        // Consider making the trusted proxy headers configurable.
+        $headers = ['HTTP_CF_CONNECTING_IP', 'HTTP_X_REAL_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_REMOTE_ADDR', 'REMOTE_ADDR'];
+        foreach ($headers as $header) {
+            if (!empty($_SERVER[$header])) {
+                $this->userIp = (string) $_SERVER[$header];
+                break;
+            }
         }
+        // Take the first IP if a list is provided (e.g., in X-Forwarded-For)
+        $this->userIp = explode(',', $this->userIp)[0];
+
+        $this->userAgent = !empty($_SERVER['HTTP_USER_AGENT']) ? (string) $_SERVER['HTTP_USER_AGENT'] : '';
     }
 
+    /**
+     * @return void
+     */
     protected function setLang(): void
     {
+        if ($this->lang) { // Lang was forced in config
+            return;
+        }
         if (empty($_SERVER['HTTP_ACCEPT_LANGUAGE'])) {
             $this->lang = 'en';
             return;
         }
         $k = array_keys($this->locale);
-        $v = preg_match('/(' . implode('|', $k) . ')/u', (string) $_SERVER['HTTP_ACCEPT_LANGUAGE'], $m);
-        if ($v) {
+        if (preg_match('/(' . implode('|', $k) . ')/iu', (string) $_SERVER['HTTP_ACCEPT_LANGUAGE'], $m)) {
             $this->lang = $m[1];
+        } else {
+            $this->lang = 'en';
         }
     }
 
-    protected function init(): bool
+    /**
+     * @return string
+     */
+    public function getLang(): string
     {
-        if ($this->checkIp) {
-            if (!$this->checkIp()) {
-                $this->wallAlarmAction(self::RULE_IP);
-            }
-        }
-
-        if ($this->checkUrl) {
-            if (!$this->checkUrl((string) ($_SERVER['REQUEST_URI'] ?? ''))) {
-                $this->wallAlarmAction(self::RULE_URL);
-            }
-        }
-
-        if ($this->checkUa) {
-            if (!$this->checkUa((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''))) {
-                $this->wallAlarmAction(self::RULE_UA);
-            }
-        }
-
-        if ($this->checkPost && !empty($_POST)) {
-            if (!$this->checkPost($_POST)) {
-                $this->wallAlarmAction(self::RULE_POST);
-            }
-        }
-
-        return true;
+        return $this->lang ?? '';
     }
 
+    /**
+     * @return void
+     */
+    protected function init(): void
+    {
+        if ($this->checkIp && !$this->checkIp()) {
+            $this->wallAlarmAction(self::RULE_IP);
+        }
+
+        $requestUri = isset($_SERVER['REQUEST_URI']) ? (string)$_SERVER['REQUEST_URI'] : '';
+        if ($this->checkUrl && !$this->checkUrl($requestUri)) {
+            $this->wallAlarmAction(self::RULE_URL);
+        }
+
+        if ($this->checkUa && !$this->checkUa($this->userAgent)) {
+            $this->wallAlarmAction(self::RULE_UA);
+        }
+
+        if ($this->checkPost && !empty($_POST) && !$this->checkPost($_POST)) {
+            $this->wallAlarmAction(self::RULE_POST);
+        }
+    }
+
+    /**
+     * @return bool
+     */
     protected function checkIp(): bool
     {
         if (empty($this->userIp)) {
-            // skip
-            $this->checkIp = false;
+            $this->checkIp = false; // Skip check if IP is not identified
             return true;
         }
 
         $this->ipFrc = $this->cache->getIpCacheFrequency($this->userIp);
 
-        if ($this->ipFrc) {
-            if ($this->ipFrc <= $this->try) {
-                // one more try
-                return true;
-            } else {
-                if ($this->ipFrc > $this->ddosFr) {
-                    $this->redirectByIp = EnumRedirectType::REDIRECT_TYPE_SELF;
-                }
-                return false;
+        if ($this->ipFrc > $this->try) {
+            if ($this->ipFrc > $this->ddosFr) {
+                $this->redirectByIp = EnumRedirectType::REDIRECT_TYPE_SELF;
             }
+            return false; // Block
         }
 
-        return true;
+        return true; // Allow
     }
 
+    /**
+     * @param string $str
+     * @return bool
+     */
     public function checkUrl(string $str): bool
     {
-        foreach ($this->getMatchRules($this->checkUrlKeyword, $str) as $item) {
+        foreach ($this->getMatchRules($this->checkUrlKeyword, $str) as $rule) {
             if ($this->hasMatchRules($this->checkUrlKeywordExclude, $str)) {
                 continue;
             }
-            return $this->ruleApply(self::RULE_URL, is_string($item) ? $item : $str);
+            if ($this->debug === 2) {
+                exit('Block by URL: ' . $rule . ': ' . $str);
+            }
+            return $this->ruleApply(self::RULE_URL, $rule . ': ' . $str);
         }
         return true;
     }
 
+    /**
+     * @param string $str
+     * @return bool
+     */
     public function checkUa(string $str): bool
     {
-        if (!$str && $this->checkUaEmpty) {
+        if (empty($str) && $this->checkUaEmpty) {
             return $this->ruleApply(self::RULE_UA, '*empty*');
-        } else {
-            foreach ($this->getMatchRules($this->checkUaKeyword, $str) as $item) {
-                if ($this->hasMatchRules($this->checkUaKeywordExclude, $str)) {
-                    continue;
-                }
-                return $this->ruleApply(self::RULE_UA, is_string($item) ? $item : $str);
-            }
         }
+        if (mb_strlen($str) > 500) {
+            return $this->ruleApply(self::RULE_UA, 'Too long > 500');
+        }
+
+        foreach ($this->getMatchRules($this->checkUaKeyword, $str) as $rule) {
+            if ($this->hasMatchRules($this->checkUaKeywordExclude, $str)) {
+                continue;
+            }
+            if ($this->debug === 2) {
+                exit('Block by UA: ' . $rule . ': ' . $str);
+            }
+            return $this->ruleApply(self::RULE_UA, $rule . ': ' . $str);
+        }
+
         return true;
     }
 
-    public function checkPost(mixed $post): bool
+    /**
+     * @param mixed $postData
+     * @return bool
+     */
+    public function checkPost(mixed $postData): bool
     {
-        if (is_array($post)) {
-            foreach ($post as $value) {
+        if (is_array($postData)) {
+            foreach ($postData as $value) {
                 if (!$this->checkPost($value)) {
                     return false;
                 }
             }
         } else {
-            $post = (string) $post;
-            foreach ($this->getMatchRules($this->checkPostKeyword, $post) as $item) {
-                if ($this->hasMatchRules($this->checkPostKeywordExclude, $post)) {
+            $strValue = (string) $postData;
+            foreach ($this->getMatchRules($this->checkPostKeyword, $strValue) as $rule) {
+                if ($this->hasMatchRules($this->checkPostKeywordExclude, $strValue)) {
                     continue;
                 }
-                return $this->ruleApply(self::RULE_POST, is_string($item) ? $item : $post);
+                if ($this->debug === 2) {
+                    exit('Block by POST: ' . $rule . ': ' . $strValue);
+                }
+                return $this->ruleApply(self::RULE_POST, $rule . ': ' . $strValue);
             }
         }
         return true;
     }
 
     /**
-     * @param array<int, string|callable>  $rules
+     * @param (string|callable)[] $rules
+     * @param string $str
+     * @return \Generator<string>
      */
     protected function getMatchRules(array $rules, string $str): \Generator
     {
-        foreach ($rules as $rule) {
-            if (is_string($rule)) {
-                if (preg_match($rule, $str) > 0) {
+        foreach ($rules as $k => $rule) {
+            if (is_callable($rule) && call_user_func($rule, $str)) {
+                yield 'call:' . $k;
+            } elseif (is_string($rule)) {
+                $res = preg_match($rule, $str);
+                if ($res > 0) {
                     yield $rule;
-                }
-            } elseif (is_callable($rule)) {
-                if (call_user_func($rule, $str)) {
-                    yield $rule;
+                } elseif ($res === false) {
+                    $this->log(LogLevel::WARNING, 'BAD regexp: ' . $rule);
                 }
             }
         }
     }
 
     /**
-     * @param array<int, string|callable>  $rules
+     * @param (string|callable)[] $rules
+     * @param string $str
+     * @return bool
      */
     protected function hasMatchRules(array $rules, string $str): bool
     {
-        foreach ($rules as $rule) {
-            if (is_string($rule)) {
-                if (preg_match($rule, $str)) {
-                    return true;
-                }
-            } elseif (is_callable($rule)) {
-                if (call_user_func($rule, $str)) {
-                    return true;
-                }
-            }
+        foreach ($this->getMatchRules($rules, $str) as $_) {
+            return true;
         }
         return false;
     }
 
+    /**
+     * @param int $rule
+     * @param string $word
+     * @return bool
+     */
     protected function ruleApply(int $rule, string $word): bool
     {
-        $this->incrementBadIp();
+        // Allow trusted IPs (e.g., search engine bots) to bypass certain rules.
+        $trust = $this->cache->getIpCacheTrust($this->userIp);
+        if ($trust === self::TRUST_WHITE_LIST || $trust === self::TRUST_CONTROL) {
+            return true;
+        }
+
+        $this->log(LogLevel::INFO, 'Trigger by ' . View::RULE_TYPE_MAP[$rule] . ': ' . $word);
+        $this->incrementBadIp($this->userIp);
 
         if ($this->allowLogRequest) {
             $this->db->addLog($this->userIp, $rule, $word, $this->ipFrc);
         }
 
-        if ($this->ipFrc <= $this->try) {
-            // try skip
-            return true;
-        }
-
-        $trust = $this->cache->getIpCacheTrust($this->userIp);
-        if ($trust !== self::TRUST_SEARCH) {
-            return false;
-        }
-
-        return true;
+        // If the number of attempts is still within the allowed limit, do not block yet.
+        return $this->ipFrc <= $this->try;
     }
 
+    /**
+     * @param int $byRule
+     * @return void
+     */
     protected function wallAlarmAction(int $byRule): void
     {
-        if ($this->debug) {
-            $this->log(LogLevel::NOTICE, 'wallAlarm: ' . View::TYPE_LIST[$byRule]);
-        }
+        $this->log(LogLevel::NOTICE, 'wallAlarm: ' . View::RULE_TYPE_MAP[$byRule]);
 
-        if ($byRule === self::RULE_IP) {
-            $rule = $this->redirectByIp;
-        } else {
-            $rule = $this->redirectByCheck;
-        }
+        $redirectType = ($byRule === self::RULE_IP) ? $this->redirectByIp : $this->redirectByCheck;
 
-        if ($rule) {
-            if ($rule === EnumRedirectType::REDIRECT_TYPE_SELF) {
+        switch ($redirectType) {
+            case EnumRedirectType::REDIRECT_TYPE_SELF:
                 self::redirect('//' . $this->userIp);
-            } elseif ($rule === EnumRedirectType::REDIRECT_TYPE_INFO) {
-                if (!empty($_POST[self::POST_WALL_NAME])) {
-                    if ($this->unBunByCaptcha()) {
-                        self::redirect('//' . (string) $_SERVER['HTTP_HOST']);
-                    }
+                break;
+            case EnumRedirectType::REDIRECT_TYPE_INFO:
+                if (!empty($_POST[self::POST_WALL_NAME]) && $this->unBunByCaptcha()) {
+                    self::redirect('//' . (string) ($_SERVER['HTTP_HOST'] ?? ''));
                 }
+                $phpWall = $this;
                 include $this->wallTpl;
                 exit();
-            } else {
-                self::redirect($rule);
-            }
+            default:
+                // @phpstan-ignore-next-line
+                self::redirect($redirectType);
+                break;
         }
         exit('No rule');
     }
 
+    /**
+     * @param string $url
+     * @return void
+     */
     protected static function redirect(string $url): void
     {
-        header('Location: ' . $url, true, 301);
+        if (!headers_sent()) {
+            header('Location: ' . $url, true, 301);
+        } else {
+            echo '<script>location.href="' . $url . '";</script>';
+        }
         exit();
     }
 
+    /**
+     * @return bool
+     */
     protected function unBunByCaptcha(): bool
     {
-        if (!empty($_POST['g-recaptcha-response'])) {
-            $flag = false;
-            $myCurl = curl_init();
-            curl_setopt_array($myCurl, [
-                CURLOPT_URL => 'https://www.google.com/recaptcha/api/siteverify',
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => http_build_query([
-                    'secret' => $this->googleCaptchaSecretKey,
-                    'response' => $_POST['g-recaptcha-response'],
-                    'remoteip' => $this->userIp,
-                ]),
-            ]);
-            $response = curl_exec($myCurl);
-            curl_close($myCurl);
-            if (is_string($response)) {
-                $response = json_decode($response, true);
-                if (is_array($response) && !empty($response['success'])) {
-                    $flag = true;
-                }
-            }
-            if ($flag) {
-                $this->setIpIsTrust($this->userIp, self::TRUST_CAPTCHA);
-                return true;
-            } else {
-                $this->errorMessage = 'Captcha not valid! Try again.';
-            }
-        } else {
+        $captchaResponse = $_POST['g-recaptcha-response'] ?? null;
+        if (!$captchaResponse) {
             $this->errorMessage = 'Captcha not valid!';
+            return false;
         }
+
+        if ($this->verifyCaptcha((string)$captchaResponse)) {
+            $this->setIpIsTrust($this->userIp, self::TRUST_CAPTCHA);
+            return true;
+        }
+
+        $this->errorMessage = 'Captcha not valid! Try again.';
         return false;
+    }
+
+    /**
+     * @param string $response
+     * @return bool
+     */
+    private function verifyCaptcha(string $response): bool
+    {
+        $myCurl = curl_init();
+        curl_setopt_array($myCurl, [
+            CURLOPT_URL => 'https://www.google.com/recaptcha/api/siteverify',
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => http_build_query([
+                'secret' => $this->googleCaptchaSecretKey,
+                'response' => $response,
+                'remoteip' => $this->userIp,
+            ]),
+        ]);
+        $apiResponse = curl_exec($myCurl);
+        curl_close($myCurl);
+
+        if (!is_string($apiResponse) || empty($apiResponse)) {
+            return false;
+        }
+
+        $decodedResponse = json_decode($apiResponse, true);
+        return is_array($decodedResponse) && !empty($decodedResponse['success']);
     }
 
     /**
@@ -485,106 +598,145 @@ class PHPWall
      */
     protected function getBunTimeout(array $data): int
     {
-        if ($data) {
-            return $this->banTimeOut +
-                ($data['request_bad_days'] - 1) * $this->banTimeOutEachDay +
-                ($data['request_bad'] * $this->banTimeOutEachRequest);
+        if (empty($data)) {
+            return $this->banTimeOut;
         }
-        return $this->banTimeOut;
+        return $this->banTimeOut +
+            ($data['request_bad_days'] - 1) * $this->banTimeOutEachDay +
+            ($data['request_bad'] * $this->banTimeOutEachRequest);
     }
 
-    protected function incrementBadIp(): void
+    /**
+     * @param string $ip
+     * @return void
+     */
+    protected function incrementBadIp(string $ip): void
     {
         $this->ipFrc++;
-        $saveToDb = true;
 
-        if ($this->ipFrc < $this->try) {
-            $saveToDb = false;
+        $saveToDb = false;
+        if ($this->ipFrc === $this->try) {
+            $saveToDb = true; // First time we hit the limit, always save.
+        } elseif ($this->ipFrc > $this->try && $this->ipFrc < $this->evilFr) {
+            // For moderate attacks, save every 3rd bad request to reduce DB load.
+            $saveToDb = ($this->ipFrc % 3) === 0;
         } elseif ($this->ipFrc >= $this->evilFr) {
-            //Для защиты от небольшого ДДОСа
-            $saveToDb = fmod($this->ipFrc, 100) == 0;
-        } elseif ($this->ipFrc !== $this->try) {
-            $saveToDb = fmod($this->ipFrc, 3) == 0;
+            // For heavy attacks (DDOS), save only every 100th request.
+            $saveToDb = ($this->ipFrc % 100) === 0;
         }
-
-        $ip = $this->userIp;
 
         if ($saveToDb) {
             $this->db->beginTransaction();
+            try {
+                $data = $this->db->getMainByIp($ip);
+                $bunTimeout = $this->getBunTimeout($data);
 
-            $data = $this->db->getMainByIp($ip);
+                if ($data) {
+                    $data = $this->db->updateBadIp($data, $this->ipFrc, $bunTimeout);
+                } else {
+                    $hostname = $this->getHostnameByIp($ip);
+                    $trust = self::TRUST_DEFAULT;
+                    if ($this->isTrustIp($hostname, $ip)) {
+                        $trust = self::TRUST_WHITE_LIST;
+                    }
+                    $data = $this->db->insertBadIp($ip, $this->userAgent, $this->ipFrc, $bunTimeout, $hostname, $trust);
+                }
+                $this->db->commit();
 
-            $bunTimeout = $this->getBunTimeout($data);
-
-            if ($data) {
-                $data = $this->db->updateBadIp($data, $this->ipFrc, $bunTimeout);
-            } else {
-                $data = $this->db->insertBadIp($ip, $this->ipFrc, $bunTimeout);
+                $this->cache->setIpCache($ip, $bunTimeout, $data['trust']);
+            } catch (Throwable $e) {
+                $this->db->rollback();
+                $this->log(LogLevel::ERROR, $e);
             }
-
-            $this->db->commit();
-
-            $this->cache->setIpCache(
-                $ip,
-                $bunTimeout,
-                $data['trust'],
-            );
         } else {
-            $this->cache->setIpCache(
-                $ip,
-                $this->banTimeOut,
-            );
+            $this->cache->setIpCache($ip, $this->banTimeOut);
         }
     }
 
-    /*****************************************************/
-    /*****************************************************/
+    /**
+     * @param string $ip
+     * @return string
+     */
+    protected function getHostnameByIp(string $ip): string
+    {
+        return gethostbyaddr($ip) ?: '';
+    }
+
     /*****************************************************/
 
     /**
-     * @param array<string, scalar>     $context
+     * @param string $level
+     * @param string|\Throwable $message
+     * @param array<mixed> $context
+     * @return void
      */
     public function log(string $level, string|Stringable $message, array $context = []): void
     {
-        if ($this->debug || $level == LogLevel::ERROR || $level == LogLevel::CRITICAL || $level == LogLevel::EMERGENCY) {
-            fwrite(\STDERR, 'PHPWall [' . $level . '] ' . $message . ' | ' . json_encode($context) . PHP_EOL);
+        if ($this->logger) {
+            $this->logger->log($level, (string) $message, $context);
+        } else {
+            trigger_error((string) $message, E_USER_NOTICE);
         }
-        if (!$this->logger) {
-            return;
-        }
-        $this->logger->log($level, $message, $context);
     }
 
+    /**
+     * @param string $ip
+     * @param int $trust
+     * @return void
+     */
     public function setIpIsTrust(string $ip, int $trust): void
     {
-        $this->cache->setIpIsTrust($ip, $trust);
-        $this->db->setIpIsTrust($ip, $trust);
+        $this->cache->setIpIsTrust($ip, $trust, $this->trustControlTimeout);
+        $this->db->setIpIsTrust($ip, $trust, $this->trustControlTimeout);
     }
 
+    /**
+     * @return string
+     */
     public function getErrorMessage(): string
     {
         return $this->errorMessage;
     }
 
+    /**
+     * @return int
+     */
     public function getDosFr(): int
     {
         return $this->ddosFr;
     }
 
+    /**
+     * @return string
+     */
     public function getGoogleCaptchaSiteKey(): string
     {
         return $this->googleCaptchaSiteKey;
     }
 
+    /**
+     * @return string
+     */
     public function getUserIp(): string
     {
         return $this->userIp;
     }
 
-    public function isTrustIp(string $host): bool
+    /**
+     * @param string $host
+     * @param string $ip
+     * @return bool
+     */
+    public function isTrustIp(string $host, string $ip): bool
     {
         foreach ($this->trustHosts as $r) {
-            if (str_contains($host, $r)) {
+            if ($r === $ip) {
+                return true;
+            }
+            if (is_string($r) && substr($host, -(strlen($r))) === $r) {
+                return true;
+            }
+            if (is_callable($r) && call_user_func($r, $host)) {
                 return true;
             }
         }
@@ -593,132 +745,49 @@ class PHPWall
 
     /**
      * @param string $message
-     * @param array<string|int, mixed>  $params
+     * @param array<string|int, mixed> $params
      * @return string
      */
     public function locale(string $message, array $params = []): string
     {
-        if (isset($this->locale[$this->lang][$message])) {
-            $message = $this->locale[$this->lang][$message];
-        }
-        if (count($params)) {
+        $translated = $this->locale[$this->lang][$message] ?? $message;
+        if (!empty($params)) {
             foreach ($params as $k => $p) {
-                $message = str_replace('{$' . $k . '}', (string) $p, $message);
+                $translated = str_replace('{$' . $k . '}', (string) $p, $translated);
             }
         }
-        return $message;
+        return htmlspecialchars($translated, ENT_QUOTES, 'UTF-8');
     }
 
+    /**
+     * @return void
+     */
     public function restoreCache(): void
     {
-        $f = $this->cache->get(self::KEY_CACHE_INIT);
-        if ($f) {
-            return;
-        }
-        $checkVal = microtime() . '-' . rand(0, 100000);
-        $this->cache->set(self::KEY_CACHE_INIT, $checkVal);
-        usleep(10);
-        if ($this->cache->get(self::KEY_CACHE_INIT) !== $checkVal) {
+        if ($this->cache->get(self::KEY_CACHE_INIT)) {
             return;
         }
 
+        $checkVal = microtime() . '-' . random_int(0, 100000);
+        $this->cache->set(self::KEY_CACHE_INIT, $checkVal, 60);
+        usleep(10000); // 10ms
+
+        // Prevent race condition where multiple processes try to restore at once
+        // @phpstan-ignore-next-line
+        if ((string) $this->cache->get(self::KEY_CACHE_INIT) !== $checkVal) {
+            return;
+        }
+
+        $this->cache->set(self::KEY_CACHE_INIT, microtime());
         $data = $this->db->getDataForRestore();
-        if (!$data) {
+        $this->log(LogLevel::INFO, 'restoreCache, count: ' . count($data));
+        if (empty($data)) {
             return;
         }
+
         foreach ($data as $r) {
-            $ip = (string) Tools::convertIp2String($r['ip']);
-            if ($ip) {
-                $this->cache->setIpCache($ip, $this->getBunTimeout($r), $r['trust']);
-            }
+            $this->cache->setIpCache($r['ip'], $this->getBunTimeout($r), (int)$r['trust']);
         }
     }
 
-    /**
-     * @return string[]|callable[]
-     */
-    public static function getRuleCheckUrlKeyword(): array
-    {
-        return [
-            '#eval\(#',
-            '#\/sqlite#',
-            '#\/manager#',
-            '#\/setup#',
-            '#\/admin#',
-            '#\/pma#',
-            '#\/phpma#',
-            '#\/phpmyadmin#',
-            '#\/myadmin#',
-            '#\/phpadmin#',
-            '#\/mysqladmin#',
-            '#\/wp\-login#',
-            '#\/wp\-content#',
-            '#\/administrator#',
-            '#\/wp\-admin#',
-            '#\/wp\-includes#',
-            '#\/wordpress#',
-            '#\/mod_stats\.xml#',
-            '#\/mscms#',
-            '#\/\.ssh#',
-            '#\/\.git#',
-            '#\/xmlrpc\.php#',
-            '#\/wallet\.dat#',
-            '#\/\.bash_history#',
-            '#\/webalizer#',
-            '#\/wstat#',
-            '#\/fckeditor\/editor#',
-        ];
-    }
-
-    /**
-     * @return string[]|callable[]
-     */
-    public static function getRuleCheckUrlKeywordExclude(): array
-    {
-        return [];
-    }
-
-    /**
-     * @return string[]|callable[]
-     */
-    public static function getRuleCheckUaKeyword(): array
-    {
-        return [
-            '#GuzzleHttp#',
-            '#eval\(#',
-            '#curl#',
-            '#<script>#',
-            '#select #ui',
-            function ($str) {
-                return strlen($str) > 255;
-            },
-        ];
-    }
-
-    /**
-     * @return string[]|callable[]
-     */
-    public static function getRuleCheckUaKeywordExclude(): array
-    {
-        return [];
-    }
-
-    /**
-     * @return string[]|callable[]
-     */
-    public static function getRuleCheckPostKeyword(): array
-    {
-        return [
-//            '#eval\(#',
-//            '#curl#',
-        ];
-    }
-
-    /**
-     * @return string[]|callable[]
-     */
-    public static function getRuleCheckPostKeywordExclude(): array
-    {
-        return [];
-    }
 }
