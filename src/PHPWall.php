@@ -49,7 +49,7 @@ class PHPWall
         ],
     ];
 
-    /** @var array<int, string|callable> */
+    /** @var (string|callable)[] */
     protected $trustHosts = [
         'ya.ru', 'yandex.ru', 'yandex.com', 'google.com', 'bing.com', 'yahoo.com',
     ];
@@ -69,12 +69,18 @@ class PHPWall
         ],
     ];
 
-    /** @var string[] */
+    /**
+     * Disabled by default
+     * @var array<string>
+     */
     protected $memCacheServers = [
         //'localhost:11211',
     ];
 
-    /** @var CacheServer */
+    /**
+     * Enable by default
+     * @var CacheServer
+     */
     protected $redisCacheServer = [
         'host' => '127.0.0.1',
         'port' => 6379,
@@ -114,8 +120,10 @@ class PHPWall
         '#\/wstat#',
         '#\/fckeditor\/editor#',
     ];
+
     /** @var (string|callable)[] */
     protected $checkUrlKeywordExclude = [];
+
     /** @var (string|callable)[] */
     protected $checkUaKeyword = [
         '#GuzzleHttp#i',
@@ -124,13 +132,16 @@ class PHPWall
         '#<script>#i',
         '#select #ui',
     ];
+
     /** @var (string|callable)[] */
     protected $checkUaKeywordExclude = [];
+
     /** @var (string|callable)[] */
     protected $checkPostKeyword = [
         '#eval\(#',
         '#curl#',
     ];
+
     /** @var (string|callable)[] */
     protected $checkPostKeywordExclude = [];
 
@@ -173,6 +184,8 @@ class PHPWall
     protected $banTimeOutEachDay = 43200;
     /** @var int */
     protected $banTimeOutEachRequest = 3600;
+    /** @var int */
+    protected $trustControlTimeout = 3600;
     /**
      * If session bad request more that evilFr, then less work with DB
      * @var int
@@ -307,7 +320,7 @@ class PHPWall
      */
     protected function getDb()
     {
-        return new Db($this->logger, $this->dbPdo);
+        return new Db($this, $this->dbPdo);
     }
 
     /**
@@ -341,7 +354,9 @@ class PHPWall
                 break;
             }
         }
+        // Take the first IP if a list is provided (e.g., in X-Forwarded-For)
         $this->userIp = explode(',', $this->userIp)[0];
+
         $this->userAgent = !empty($_SERVER['HTTP_USER_AGENT']) ? (string) $_SERVER['HTTP_USER_AGENT'] : '';
     }
 
@@ -366,11 +381,11 @@ class PHPWall
     }
 
     /**
-     * @return string|null
+     * @return string
      */
     public function getLang()
     {
-        return $this->lang;
+        return $this->lang ?: '';
     }
 
     /**
@@ -424,14 +439,14 @@ class PHPWall
      */
     public function checkUrl($str)
     {
-        foreach ($this->getMatchRules($this->checkUrlKeyword, $str) as $item) {
+        foreach ($this->getMatchRules($this->checkUrlKeyword, $str) as $rule) {
             if ($this->hasMatchRules($this->checkUrlKeywordExclude, $str)) {
                 continue;
             }
             if ($this->debug === 2) {
-                exit('Block by URL: ' . $str . PHP_EOL . json_encode($item));
+                exit('Block by URL: ' . $rule . ': ' . $str);
             }
-            return $this->ruleApply(self::RULE_URL, is_string($item) ? $item : $str);
+            return $this->ruleApply(self::RULE_URL, $rule . ': ' . $str);
         }
         return true;
     }
@@ -449,14 +464,14 @@ class PHPWall
             return $this->ruleApply(self::RULE_UA, 'Too long > 500');
         }
 
-        foreach ($this->getMatchRules($this->checkUaKeyword, $str) as $item) {
+        foreach ($this->getMatchRules($this->checkUaKeyword, $str) as $rule) {
             if ($this->hasMatchRules($this->checkUaKeywordExclude, $str)) {
                 continue;
             }
             if ($this->debug === 2) {
-                exit('Block by UA: ' . $str . PHP_EOL . json_encode($item));
+                exit('Block by UA: ' . $rule . ': ' . $str);
             }
-            return $this->ruleApply(self::RULE_UA, is_string($item) ? $item : $str);
+            return $this->ruleApply(self::RULE_UA, $rule . ': ' . $str);
         }
 
         return true;
@@ -476,14 +491,14 @@ class PHPWall
             }
         } else {
             $strValue = (string) $postData;
-            foreach ($this->getMatchRules($this->checkPostKeyword, $strValue) as $item) {
+            foreach ($this->getMatchRules($this->checkPostKeyword, $strValue) as $rule) {
                 if ($this->hasMatchRules($this->checkPostKeywordExclude, $strValue)) {
                     continue;
                 }
                 if ($this->debug === 2) {
-                    exit('Block by POST: ' . $strValue . PHP_EOL . json_encode($item));
+                    exit('Block by POST: ' . $rule . ': ' . $strValue);
                 }
-                return $this->ruleApply(self::RULE_POST, is_string($item) ? $item : $strValue);
+                return $this->ruleApply(self::RULE_POST, $rule . ': ' . $strValue);
             }
         }
         return true;
@@ -492,20 +507,20 @@ class PHPWall
     /**
      * @param (string|callable)[] $rules
      * @param string $str
-     * @return \Generator<string|callable>
+     * @return \Generator<string>
      */
     protected function getMatchRules(array $rules, $str)
     {
-        foreach ($rules as $rule) {
-            if (is_string($rule)) {
+        foreach ($rules as $k => $rule) {
+            if (is_callable($rule) && call_user_func($rule, $str)) {
+                yield 'call:' . $k;
+            } elseif (is_string($rule)) {
                 $res = preg_match($rule, $str);
                 if ($res > 0) {
                     yield $rule;
                 } elseif ($res === false) {
                     $this->log(LogLevel::WARNING, 'BAD regexp: ' . $rule);
                 }
-            } elseif (is_callable($rule) && call_user_func($rule, $str)) {
-                yield $rule;
             }
         }
     }
@@ -530,6 +545,12 @@ class PHPWall
      */
     protected function ruleApply($rule, $word)
     {
+        // Allow trusted IPs (e.g., search engine bots) to bypass certain rules.
+        $trust = $this->cache->getIpCacheTrust($this->userIp);
+        if ($trust === self::TRUST_WHITE_LIST || $trust === self::TRUST_CONTROL) {
+            return true;
+        }
+
         $this->log(LogLevel::INFO, 'Trigger by ' . View::RULE_TYPE_MAP[$rule] . ': ' . $word);
         $this->incrementBadIp($this->userIp);
 
@@ -537,12 +558,8 @@ class PHPWall
             $this->db->addLog($this->userIp, $rule, $word, $this->ipFrc);
         }
 
-        if ($this->ipFrc <= $this->try) {
-            return true;
-        }
-
-        $trust = $this->cache->getIpCacheTrust($this->userIp);
-        return $trust === self::TRUST_WHITE_LIST;
+        // If the number of attempts is still within the allowed limit, do not block yet.
+        return $this->ipFrc <= $this->try;
     }
 
     /**
@@ -637,7 +654,7 @@ class PHPWall
     }
 
     /**
-     * @param MainData|array<string, mixed> $data
+     * @param MainData|array{} $data
      * @return int
      */
     protected function getBunTimeout(array $data)
@@ -660,10 +677,12 @@ class PHPWall
 
         $saveToDb = false;
         if ($this->ipFrc === $this->try) {
-            $saveToDb = true;
+            $saveToDb = true; // First time we hit the limit, always save.
         } elseif ($this->ipFrc > $this->try && $this->ipFrc < $this->evilFr) {
+            // For moderate attacks, save every 3rd bad request to reduce DB load.
             $saveToDb = ($this->ipFrc % 3) === 0;
         } elseif ($this->ipFrc >= $this->evilFr) {
+            // For heavy attacks (DDOS), save only every 100th request.
             $saveToDb = ($this->ipFrc % 100) === 0;
         }
 
@@ -728,8 +747,8 @@ class PHPWall
      */
     public function setIpIsTrust($ip, $trust)
     {
-        $this->cache->setIpIsTrust($ip, $trust);
-        $this->db->setIpIsTrust($ip, $trust);
+        $this->cache->setIpIsTrust($ip, $trust, $this->trustControlTimeout);
+        $this->db->setIpIsTrust($ip, $trust, $this->trustControlTimeout);
     }
 
     /**
@@ -787,7 +806,7 @@ class PHPWall
 
     /**
      * @param string $message
-     * @param array<int, string|int> $params
+     * @param array<string|int, mixed> $params
      * @return string
      */
     public function locale($message, array $params = [])
@@ -814,6 +833,7 @@ class PHPWall
         $this->cache->set(self::KEY_CACHE_INIT, $checkVal, 60);
         usleep(10000); // 10ms
 
+        // Prevent race condition where multiple processes try to restore at once
         if ($this->cache->get(self::KEY_CACHE_INIT) !== $checkVal) {
             return;
         }

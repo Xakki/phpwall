@@ -10,8 +10,8 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
 
 /**
- * @phpstan-type MainData array{request_total: int, request_session: int, request_bad: int, request_bad_days: int, request_bad_days_up: string, ip: string, create: int, expire: string, ua: string, host: string, trust: int}
- * @phpstan-type DbConfig array{engine: string, port: int, host: string, dbname: string, username: string, password: string, options: string[]}
+ * @phpstan-type MainData array{request_total: int, request_session: int, request_bad: int, request_bad_days: int, request_bad_days_up: string, ip: string, create: string, update: string, expire: string, ua: string, host: string, trust: int}
+ * @phpstan-type DbConfig array{engine: string, port: int, host: string, dbname: string, username: string, password: string, options: array<mixed>}
  */
 class Db
 {
@@ -24,16 +24,16 @@ class Db
     /** @var DbConfig  */
     private $config;
 
-    /** @var LoggerInterface|null */
-    protected $logger;
+    /** @var PHPWall */
+    protected $owner;
 
     /**
-     * @param LoggerInterface|null $logger
+     * @param PHPWall $owner
      * @param DbConfig  $config
      */
-    public function __construct(LoggerInterface $logger, array $config)
+    public function __construct(PHPWall $owner, array $config)
     {
-        $this->logger = $logger;
+        $this->owner = $owner;
         $this->config = $config;
     }
 
@@ -74,7 +74,7 @@ class Db
 
     /**
      * @param string $table
-     * @param array<string, mixed>  $where
+     * @param array<string, string|numeric|bool>  $where
      * @return bool
      */
     public function deleteRow($table, array $where)
@@ -88,9 +88,9 @@ class Db
         $res = $stmt->execute($where);
         $err = $stmt->errorInfo();
         if ($err[1]) {
-            $this->logger->log(LogLevel::ERROR, 'SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
+            $this->owner->log(LogLevel::ERROR, 'SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
         } else {
-            $this->logger->log(LogLevel::INFO, 'DELETE  `' . $table . '`, WHERE ' . json_encode($where));
+            $this->owner->log(LogLevel::INFO, 'DELETE  `' . $table . '`, WHERE ' . json_encode($where));
         }
         return $res;
     }
@@ -98,7 +98,7 @@ class Db
 
     /**
      * @param string $table
-     * @param array<string, mixed>  $where
+     * @param array<string|int, string|numeric|bool>  $where
      * @param string $select
      * @param string $additionQuery
      * @return array<int, array<string, mixed>>
@@ -113,7 +113,7 @@ class Db
 
     /**
      * @param string $table
-     * @param array<string, mixed>  $where
+     * @param array<string|int, string|numeric|bool>  $where
      * @param string $select
      * @param string $additionQuery
      * @param bool   $flag
@@ -162,7 +162,7 @@ class Db
             }
             throw new Exception('SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
         } else {
-            $this->logger->log(LogLevel::INFO, 'SELECT `' . $table . '`, WHERE ' . json_encode($where));
+            $this->owner->log(LogLevel::INFO, 'SELECT `' . $table . '`, WHERE ' . json_encode($where));
         }
         return $stmt;
     }
@@ -180,9 +180,9 @@ class Db
 
         if ($flag === false) {
             $err = $this->connect()->errorInfo();
-            $this->logger->log(LogLevel::ERROR, 'Migration SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
+            $this->owner->log(LogLevel::ERROR, 'Migration SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
         } else {
-            $this->logger->log(LogLevel::INFO, 'Migration success');
+            $this->owner->log(LogLevel::INFO, 'Migration success');
         }
     }
 
@@ -211,7 +211,7 @@ class Db
     /**
      * @param string[] $where
      * @param string $orderBy
-     * @return array<int, array<string, mixed>>
+     * @return MainData[]
      */
     private function getDataControlView(array $where, $orderBy)
     {
@@ -221,7 +221,7 @@ class Db
     }
 
     /**
-     * @return array<int, array<string, mixed>>
+     * @return MainData[]
      */
     public function getDataControlViewActive()
     {
@@ -229,7 +229,7 @@ class Db
     }
 
     /**
-     * @return array<int, array<string, mixed>>
+     * @return MainData[]
      */
     public function getDataControlViewSleep()
     {
@@ -237,7 +237,7 @@ class Db
     }
 
     /**
-     * @return array<int, array<string, mixed>>
+     * @return MainData[]
      */
     public function getDataControlViewMost()
     {
@@ -247,7 +247,7 @@ class Db
     /*******************/
 
     /**
-     * @return array<int, array<string, mixed>>
+     * @return MainData[]
      */
     public function getDataForRestore()
     {
@@ -262,20 +262,21 @@ class Db
     /**
      * @param string $ip
      * @param int $trust
+     * @param int $expirationSecond
      */
-    public function setIpIsTrust($ip, $trust)
+    public function setIpIsTrust($ip, $trust, $expirationSecond)
     {
         $this->updateSql(
             self::TABLE_MAIN,
             ['ip=INET6_ATON("'.$ip.'")'],
-            ['trust' => $trust, 'expire=NOW()']
+            ['trust' => $trust, 'expire=TIMESTAMPADD(SECOND,'.$expirationSecond.',NOW())']
         );
     }
 
     /**
      * @param string $table
-     * @param array<string, mixed>  $where
-     * @param array<string, mixed>  $set
+     * @param array<string|int, string|numeric|bool>  $where
+     * @param array<string|numeric, string|numeric|bool>  $set
      * @return bool
      */
     public function updateSql($table, array $where, array $set)
@@ -308,9 +309,9 @@ class Db
         $res = $stmt->execute($setBind);
         $err = $stmt->errorInfo();
         if ($err[1]) {
-            $this->logger->log(LogLevel::ERROR, 'SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
+            $this->owner->log(LogLevel::ERROR, 'SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
         } else {
-            $this->logger->log(LogLevel::INFO, 'UPDATE `' . $table . '`, SET ' . json_encode($set) . ', WHERE ' . json_encode($where));
+            $this->owner->log(LogLevel::INFO, 'UPDATE `' . $table . '`, SET ' . json_encode($set) . ', WHERE ' . json_encode($where));
         }
 
         return $res;
@@ -318,7 +319,7 @@ class Db
 
     /**
      * @param string $ip
-     * @return array<string, mixed>
+     * @return MainData|array{}
      * @throws Exception
      */
     public function getMainByIp($ip)
@@ -328,9 +329,9 @@ class Db
 
     /**
      * @param string $table
-     * @param array<string, mixed>  $where
+     * @param array<string|int, string|numeric|bool>  $where
      * @param string $select
-     * @return array<string, mixed>
+     * @return array<string, mixed>|array{}
      * @throws Exception
      */
     public function selectOneSql($table, array $where, $select = '*')
@@ -338,7 +339,6 @@ class Db
         $data = $this
             ->selectSql($table, $where, $select, ' FOR UPDATE')
             ->fetch(PDO::FETCH_ASSOC);
-        // @phpstan-ignore return.type
         return is_array($data) ? $data : [];
     }
 
@@ -363,7 +363,7 @@ class Db
         $dataLog = [
             'ip' => $ip,
             'rule' => $rule,
-            'data' => substr($word, 0, 254),
+            'data' => mb_substr($word, 0, 254),
             'try' => $ipFrc,
             'create' => 0,
         ];
@@ -372,7 +372,7 @@ class Db
 
     /**
      * @param string $table
-     * @param array<string, mixed>  $data
+     * @param array<string, string|numeric|bool>  $data
      * @return int
      */
     public function insertSql($table, array $data)
@@ -382,7 +382,7 @@ class Db
 
         $keys = array_keys($data);
         foreach ($keys as $key) {
-            if ($key === 'create') {
+            if ($key === 'create' || $key === 'update') {
                 $valuePlaceholders[] = 'NOW()';
                 unset($bindData[$key]);
             } elseif ($key === 'ip') {
@@ -404,11 +404,11 @@ class Db
         $err = $stmt->errorInfo();
         if (!$err[1]) {
             $id = $this->connect()->lastInsertId();
-            $this->logger->log(LogLevel::INFO, 'INSERT `' . $table . '`, ID = ' . $id);
+            $this->owner->log(LogLevel::INFO, 'INSERT `' . $table . '`, ID = ' . $id);
             return (int)$id;
         }
 
-        $this->logger->log(LogLevel::ERROR, 'SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
+        $this->owner->log(LogLevel::ERROR, 'SQL error: ' . $err[2] . ', ' . $err[1] . ', ' . $err[0]);
         return 0;
     }
 
@@ -419,7 +419,7 @@ class Db
      * @param int $bunTimeout
      * @param string $hostname
      * @param int $trust
-     * @return array<string, mixed>
+     * @return MainData
      */
     public function insertBadIp($ip, $userAgent, $ipFrc, $bunTimeout, $hostname, $trust)
     {
@@ -430,7 +430,8 @@ class Db
             'request_bad_days' => 1,
             'request_bad_days_up' => date('Y-m-d'),
             'ip' => $ip,
-            'create' => 0,
+            'create' => date('Y-m-d H:i:s'),
+            'update' => date('Y-m-d H:i:s'),
             'expire' => date('Y-m-d H:i:s', time() + $bunTimeout),
             'ua' => mb_substr($userAgent, 0, 255),
             'host' => substr($hostname, -128),
@@ -445,7 +446,7 @@ class Db
      * @param MainData $data
      * @param int   $ipFrc
      * @param int   $bunTimeout
-     * @return array<string, mixed>
+     * @return MainData
      */
     public function updateBadIp(array $data, $ipFrc, $bunTimeout)
     {

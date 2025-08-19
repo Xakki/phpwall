@@ -4,6 +4,9 @@ namespace Xakki\PHPWall;
 
 use Exception;
 
+/**
+ * @phpstan-import-type MainData from DB
+ */
 class View
 {
     const RULE_TYPE_MAP = [
@@ -67,7 +70,7 @@ class View
     protected function renderLogView($ip)
     {
         $this->renderHeader();
-        $this->printIpInfo($ip, $this->secretRequestRemove);
+        $this->printIpInfo($ip);
 
         try {
             $dataMain = $this->conn->getMainByIp($ip);
@@ -100,10 +103,7 @@ class View
         $tab = isset($_GET['_tab']) ? $_GET['_tab'] : 'active';
 
         if (isset($_GET[$this->secretRequestRemove])) {
-            if ($this->secretRequestRemove === 'CHANGE_ME') {
-                exit('Please change the secretRequestRemove value in your configuration.');
-            }
-            $this->owner->setIpIsTrust((string)$_GET[$this->secretRequestRemove], PHPWall::TRUST_CONTROL);
+            $this->owner->setIpIsTrust((string)$_GET[$this->secretRequestRemove], !empty($_GET['deftrust']) ? PHPWall::TRUST_DEFAULT : PHPWall::TRUST_CONTROL);
             header('Location: ' . (string)(isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : "?{$this->secretRequest}=1"), true, 301);
             exit();
         }
@@ -111,14 +111,14 @@ class View
         $data = $this->fetchDataForTab($tab);
 
         $this->renderHeader();
-        $this->printIpInfo($this->owner->getUserIp(), $this->secretRequestRemove);
+        $this->printIpInfo($this->owner->getUserIp());
         $this->renderTabs($tab, count($data));
         $this->printTable($this->prepareViewMainData($data));
     }
 
     /**
      * @param string $tab
-     * @return array<int, array<string, mixed>>
+     * @return array<int, MainData>
      */
     protected function fetchDataForTab($tab)
     {
@@ -169,18 +169,17 @@ class View
 
     /**
      * @param string $ip
-     * @param string $rmKey
      * @return void
      */
-    protected function printIpInfo($ip, $rmKey)
+    protected function printIpInfo($ip)
     {
         $ipInfo = $this->cache->getIpInfo($ip);
         if (!$ipInfo) {
             return;
         }
 
-        $removeLink = '?' . $this->secretRequest . '=1&tt=' . time() . '&' . $rmKey . '=' . urlencode($ipInfo['ip']);
-        echo '<p>IP info: ' . htmlspecialchars($ipInfo['ip']) . " <a href=\"{$removeLink}\">[Remove Trust]</a>";
+        $removeLink = '?' . $this->secretRequest . '=1&tt=' . time() . '&' . $this->secretRequestRemove . '=' . urlencode($ipInfo['ip']);
+        echo '<p>IP info: ' . htmlspecialchars($ipInfo['ip']) . " [ <a href=\"{$removeLink}\">Control Trust</a>, <a href=\"{$removeLink}&deftrust=1\">No Trust</a> ]";
 
         if ($ipInfo['time']) {
             echo '<span>  ' . date('Y-m-d H:i:s', (int)$ipInfo['time'])
@@ -192,7 +191,7 @@ class View
     }
 
     /**
-     * @param array<int, array<string, string>> $rows
+     * @param array<int, array<string, string|int>> $rows
      * @return void
      */
     protected function printTable(array $rows)
@@ -218,8 +217,8 @@ class View
     }
 
     /**
-     * @param array<int, array<string, mixed>> $data
-     * @return array<int, array<string, string>>
+     * @param array<int, MainData> $data
+     * @return array<int, array<string, string|int>>
      */
     protected function prepareViewMainData(array $data)
     {
@@ -229,25 +228,24 @@ class View
 
         foreach ($data as $r) {
             $ipStr = $r['ip'];
-            $isIpValid = true;
             $exp = $this->cache->getIpCacheBunTimeout($ipStr);
-
             $sessionRqStyle = ($ddFr < (int)$r['request_session']) ? 'style="color:red;"' : '';
 
             $row = [
                 'Ip' => "<span {$sessionRqStyle}>" . htmlspecialchars($ipStr) . '</span>',
                 'Dates' => 'Cr: ' . $r['create']
                     . '<br/>Up: ' . $r['update']
-                    . '<br/>Exp cache: ' . ($isIpValid ? date('Y-m-d H:i:s', strtotime((string)$r['update']) + $exp) : 'N/A'),
-                'Session rq' => (string)(int)$r['request_session'],
-                'Total rq' => (string)(int)$r['request_total'],
-                'Passed rq' => (string)(int)$r['request_bad'],
-                'Bad days' => (string)(int)$r['request_bad_days'],
+                    . '<br/>Expire: ' . $r['expire']
+                    . '<br/>Exp cache: ' . date('Y-m-d H:i:s', strtotime((string)$r['update']) + $exp),
+                'Session rq' => (int)$r['request_session'],
+                'Total rq' => (int)$r['request_total'],
+                'Passed rq' => (int)$r['request_bad'],
+                'Bad days' => (int)$r['request_bad_days'],
                 'Is trust' => isset($this->trustList[(int)$r['trust']]) ? $this->trustList[(int)$r['trust']] : '-',
-                'Host' => htmlspecialchars((string)(isset($r['host']) ? $r['host'] : '')),
-                'UA' => htmlspecialchars((string)(isset($r['ua']) ? $r['ua'] : '')),
-                'Actions' => $isIpValid ? '<a href="' . $baseUrl . '_logip=' . urlencode($ipStr) . '">Logs</a>' : '',
-                'Remove' => $isIpValid ? '<a href="' . $baseUrl . $this->secretRequestRemove . '=' . urlencode($ipStr) . '">X</a>' : '',
+                'Host' => htmlspecialchars($r['host']),
+                'UA' => htmlspecialchars($r['ua']),
+                'Actions' => '<a href="' . $baseUrl . '_logip=' . urlencode($ipStr) . '">Logs</a>',
+                'Remove' => '<a href="' . $baseUrl . $this->secretRequestRemove . '=' . urlencode($ipStr) . '">X</a>',
             ];
 
             $rows[] = $row;

@@ -109,15 +109,16 @@ class Cache
     /**
      * @param string $ip
      * @param int $trust
+     * @param int $expirationSecond
      * @return void
      */
-    public function setIpIsTrust($ip, $trust)
+    public function setIpIsTrust($ip, $trust, $expirationSecond)
     {
         $baseKey = $this->getKeyIp($ip);
         $this->delete($baseKey);
         $this->delete($baseKey . '-bunTimeout');
         $this->delete($baseKey . '-time');
-        $this->set($baseKey . '-trust', $trust);
+        $this->set($baseKey . '-trust', $trust, $expirationSecond);
     }
 
     /**

@@ -12,9 +12,9 @@ use Xakki\PHPWall\PHPWall;
 
 ?>
 <!doctype html>
-<html lang="<?php echo htmlspecialchars($phpWall->getLang(), ENT_QUOTES, 'UTF-8') ?>">
+<html lang="<?= $phpWall->getLang()?>">
 <head>
-    <title>PHPWall <?php echo PHPWall::VERSION ?> - <?php echo $phpWall->locale('Attention') ?></title>
+    <title>PHPWall <?= PHPWall::VERSION ?> - <?= $phpWall->locale('Attention') ?></title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <meta name="robots" content="noindex, nofollow">
@@ -46,6 +46,13 @@ use Xakki\PHPWall\PHPWall;
     </style>
     <?php if ($phpWall->getGoogleCaptchaSiteKey()) : ?>
         <script src='https://www.google.com/recaptcha/api.js' async defer></script>
+        <script>
+            function onSubmit(token) {
+                console.log(token);
+                document.getElementById("g-input").value = token;
+                document.getElementById("wall-form").submit();
+            }
+        </script>
     <?php endif; ?>
 </head>
 
@@ -56,28 +63,30 @@ use Xakki\PHPWall\PHPWall;
         <div class="inner">
             <h3 class="masthead-brand">PHPWall</h3>
             <nav class="nav nav-masthead justify-content-center">
-                <a class="nav-link" href="/"><?php echo $phpWall->locale('Home') ?></a>
+                <a class="nav-link" href="/"><?= $phpWall->locale('Home') ?></a>
             </nav>
         </div>
     </header>
 
     <main role="main" class="inner cover">
-        <h1 class="cover-heading"><?php echo $phpWall->locale('Attention') ?>!</h1>
-        <p class="lead"><?php echo $phpWall->locale('Your IP [{$0}] has been blocked for suspicious activity.', [$phpWall->getUserIp()]) ?></p>
-        <p><?php echo $phpWall->locale('If you want to remove the lock, please complete the check.') ?></p>
+        <h1 class="cover-heading"><?= $phpWall->locale('Attention') ?>!</h1>
+        <p class="lead"><?= $phpWall->locale('Your IP [{$0}] has been blocked for suspicious activity.', [$phpWall->getUserIp()]) ?></p>
+        <p><?= $phpWall->locale('If you want to remove the lock, click the button.') ?></p>
 
         <?php if ($phpWall->getGoogleCaptchaSiteKey()) : ?>
-            <form method="POST" action="">
-                <input type="hidden" name="<?php echo PHPWall::POST_WALL_NAME ?>" value="please"/>
-                <div class="g-recaptcha" data-sitekey="<?php echo htmlspecialchars($phpWall->getGoogleCaptchaSiteKey(), ENT_QUOTES, 'UTF-8') ?>" style="display: inline-block;"></div>
-                <br>
-                <button type="submit" class="btn btn-lg btn-secondary mt-2"><?php echo $phpWall->locale('Unblock') ?></button>
+            <form method="POST" action="" id="wall-form">
+                <input type="hidden" name="<?= PHPWall::POST_WALL_NAME ?>" value="please"/>
+                <input type="hidden" name="g-recaptcha-response" value="" id="g-input"/>
             </form>
+            <button data-sitekey="<?= $phpWall->getGoogleCaptchaSiteKey() ?>" data-callback="onSubmit"
+                    class="btn btn-lg btn-secondary mt-2 g-recaptcha" data-action="submit">
+                <?= $phpWall->locale('Unblock') ?>
+            </button>
         <?php endif; ?>
 
         <?php if ($phpWall->getErrorMessage()) : ?>
             <br/>
-            <p class="alert alert-danger"><?php echo $phpWall->locale($phpWall->getErrorMessage()) ?></p>
+            <p class="alert alert-danger"><?= $phpWall->locale($phpWall->getErrorMessage()) ?></p>
         <?php endif; ?>
     </main>
 

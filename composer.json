@@ -1,6 +1,6 @@
 {
   "name": "xakki/phpwall",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "description": "PHP Web Application Firewall (WAF)",
   "type": "library",
   "minimum-stability": "dev",
