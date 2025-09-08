@@ -2,6 +2,10 @@
 
 Protect site from scanners on PHP
 
+`composer r xakki/phpwall:0.8` For php ^8.1
+
+`composer r xakki/phpwall:0.5` For php 5.6
+
 # How run example
 
 * cp .env.dist .env
@@ -27,3 +31,9 @@ If encoded password
 ```
 set password for 'phpwall' = PASSWORD('*****');
 ```
+
+
+# Docker image info
+Get from 
+* https://gitlab.com/Xakki/dockers-images/-/blob/main/php8/8.4.Dockerfile?ref_type=heads
+* https://gitlab.com/Xakki/dockers-images/-/blob/main/php8/8.1.Dockerfile?ref_type=heads

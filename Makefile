@@ -4,11 +4,10 @@ SHELL = /bin/bash
 -include ./.env
 export
 
-docker := docker run -it --rm -v $(PWD):/app -w /app xakki/phpwall-php:8.1
+docker := docker run -it --rm -v $(PWD):/app -w /app xakki/php:8.1-fpm
+docker84 := docker run -it --rm -v $(PWD):/app -w /app xakki/php:8.4-fpm
 composer := $(docker) composer
-
-docker-build:
-	docker build -t xakki/phpwall-php:8.1 .
+composer84 := $(docker84) composer
 
 bash:
 	$(docker) bash
@@ -27,6 +26,7 @@ cs-check:
 
 phpstan:
 	$(composer) phpstan
+	$(composer84) phpstan
 
 phpunit:
 	$(composer) phpunit

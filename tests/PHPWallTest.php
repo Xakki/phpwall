@@ -2,6 +2,7 @@
 
 namespace Xakki\PHPWall\Tests;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Xakki\PHPWall\PHPWall;
 
@@ -11,9 +12,15 @@ final class PHPWallTest extends TestCase
     const URL_KEY_EXCLUDE = 'myCustomUrl';
     const URL_KEY_EXCLUDE2 = 'excludeUrl2';
 
-    /**
-     * @dataProvider dataProviderUrls
-     */
+    public function testTrustIp(): void
+    {
+        $mock = $this->getMockedPhpWall();
+        $this->assertEquals(true, $mock->isTrustIp('126.0.0.1'), 'Failed trust ip');
+        $this->assertEquals(true, $mock->isTrustIp('125.0.127.1'), 'Failed trust ip');
+        $this->assertEquals(false, $mock->isTrustIp('127.0.0.1'), 'Failed trust ip');
+    }
+
+    #[DataProvider('dataProviderUrls')]
     public function testCheckUrl(string $url, bool $expected): void
     {
         $mock = $this->getMockedPhpWall();
@@ -34,9 +41,7 @@ final class PHPWallTest extends TestCase
         ];
     }
 
-    /**
-     * @dataProvider dataProviderUa
-     */
+    #[DataProvider('dataProviderUa')]
     public function testCheckUa(string $ua, bool $expected): void
     {
         $mock = $this->getMockedPhpWall();
@@ -57,9 +62,7 @@ final class PHPWallTest extends TestCase
         ];
     }
 
-    /**
-     * @dataProvider dataProviderPost
-     */
+    #[DataProvider('dataProviderPost')]
     public function testCheckPost(array $post, bool $expected): void
     {
         $mock = $this->getMockedPhpWall();
@@ -111,16 +114,24 @@ final class PHPWallTest extends TestCase
                 '/' . self::URL_KEY_EXCLUDE2 . '/ui',
                 static fn($str) => str_contains($str, self::URL_KEY_EXCLUDE),
             ],
+            'trustHosts' => [
+                '126.0.0.1',
+                '125.0.0.1/8',
+            ]
         ];
+        $_SERVER['HTTP_X_REAL_IP'] = '127.0.0.1';
         $mock = $this->getMockBuilder(PHPWall::class)
             ->enableOriginalConstructor()
             ->setConstructorArgs([...$config])
-            ->onlyMethods(['ruleApply', 'getCache', 'getDb', 'init'])
+            ->onlyMethods(['ruleApply', 'getCache', 'getDb', 'init', 'getHostnameByIp'])
             ->getMock();
 
         $mock->method('ruleApply')
             ->willReturn(false);
-        $mock->method('init');
+        $mock->method('getHostnameByIp')
+            ->willReturn('localhost');
+        $mock
+            ->method('init');
         return $mock;
     }
 }
