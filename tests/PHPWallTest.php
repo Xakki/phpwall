@@ -11,6 +11,14 @@ final class PHPWallTest extends TestCase
     const URL_KEY_EXCLUDE = 'myCustomUrl';
     const URL_KEY_EXCLUDE2 = 'excludeUrl2';
 
+    public function testTrustIp()
+    {
+        $mock = $this->getMockedPhpWall();
+        $this->assertEquals(true, $mock->isTrustIp('126.0.0.1'), 'Failed trust ip');
+        $this->assertEquals(true, $mock->isTrustIp('125.0.127.1'), 'Failed trust ip');
+        $this->assertEquals(false, $mock->isTrustIp('127.0.0.1'), 'Failed trust ip');
+    }
+
     /**
      * @dataProvider dataProviderUrls
      */
@@ -117,15 +125,24 @@ final class PHPWallTest extends TestCase
                     return strpos($str, self::URL_KEY_EXCLUDE) !== false;
                 },
             ],
+            'trustHosts' => function() {
+                return [
+                    '126.0.0.1',
+                    '125.0.0.1/8',
+                ];
+            }
         ];
+        $_SERVER['HTTP_X_REAL_IP'] = '127.0.0.1';
         $mock = $this->getMockBuilder(PHPWall::class)
             ->enableOriginalConstructor()
             ->setConstructorArgs([$config])
-            ->setMethods(['ruleApply', 'getCache', 'getDb', 'initView', 'init'])
+            ->setMethods(['ruleApply', 'getCache', 'getDb', 'initView', 'init', 'getHostnameByIp'])
             ->getMock();
 
         $mock->method('ruleApply')
             ->willReturn(false);
+        $mock->method('getHostnameByIp')
+            ->willReturn('localhost');
         $mock->method('init')
             ->willReturn(false);
         return $mock;

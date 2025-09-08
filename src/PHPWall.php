@@ -14,7 +14,7 @@ use PDO;
  */
 class PHPWall
 {
-    const VERSION = '0.5.7';
+    const VERSION = '0.5.9';
 
     const RULE_IP = 0;
     const RULE_UA = 1;
@@ -51,7 +51,7 @@ class PHPWall
 
     /** @var (string|callable)[] */
     protected $trustHosts = [
-        'ya.ru', 'yandex.ru', 'yandex.com', 'google.com', 'bing.com', 'yahoo.com',
+        'ya.ru', 'yandex.ru', 'yandex.com', 'google.com', 'bing.com', 'yahoo.com', '127.0.0.1', '172.0.0.1/8'
     ];
 
     /** @var DbConfig */
@@ -250,7 +250,11 @@ class PHPWall
         foreach ($config as $k => $r) {
             if (!empty($props[$k])) {
                 if ($props[$k] === 'array') {
-                    $this->$k = array_merge($this->$k, $r);
+                    if (is_callable($r)) {
+                        $this->$k = call_user_func($r);
+                    } else {
+                        $this->$k = array_merge($this->$k, $r);
+                    }
                 } elseif ($props[$k] === 'bool') {
                     $this->$k = (bool) $r;
                 } elseif ($props[$k] === 'int') {
@@ -271,7 +275,8 @@ class PHPWall
     /**
      * @return string[]
      */
-    protected static function getPropertyValidator() {
+    protected static function getPropertyValidator()
+    {
         return [
             'wallTpl' => 'string',
             'cachePrefix' => 'string',
@@ -695,12 +700,11 @@ class PHPWall
                 if ($data) {
                     $data = $this->db->updateBadIp($data, $this->ipFrc, $bunTimeout);
                 } else {
-                    $hostname = $this->getHostnameByIp($ip);
                     $trust = self::TRUST_DEFAULT;
-                    if ($this->isTrustIp($hostname, $ip)) {
+                    if ($this->isTrustIp($ip)) {
                         $trust = self::TRUST_WHITE_LIST;
                     }
-                    $data = $this->db->insertBadIp($ip, $this->userAgent, $this->ipFrc, $bunTimeout, $hostname, $trust);
+                    $data = $this->db->insertBadIp($ip, $this->userAgent, $this->ipFrc, $bunTimeout, $this->getHostnameByIp($ip), $trust);
                 }
                 $this->db->commit();
 
@@ -720,7 +724,12 @@ class PHPWall
      */
     protected function getHostnameByIp($ip)
     {
-        return gethostbyaddr($ip) ?: '';
+        $hostname = $this->cache->get('hostname:' . $ip);
+        if (!is_string($hostname)) {
+            $hostname = gethostbyaddr($ip) ?: '';
+            $this->cache->set('hostname:' . $ip, $hostname, 86400);
+        }
+        return $hostname;
     }
 
     /*****************************************************/
@@ -733,6 +742,7 @@ class PHPWall
      */
     public function log($level, $message, array $context = [])
     {
+        $context['tag'] = 'PHPWall';
         if ($this->logger) {
             $this->logger->log($level, (string) $message, $context);
         } else {
@@ -784,20 +794,60 @@ class PHPWall
     }
 
     /**
-     * @param string $host
      * @param string $ip
      * @return bool
      */
-    public function isTrustIp($host, $ip)
+    public function isTrustIp($ip)
     {
+        $hostname = $this->getHostnameByIp($ip);
+        $ipLong = ip2long($ip);
+
         foreach ($this->trustHosts as $r) {
             if ($r === $ip) {
                 return true;
             }
-            if (is_string($r) && substr($host, -(strlen($r))) === $r) {
+            // находим совпадение домена
+            if (is_string($r) && substr($hostname, -(strlen($r))) === $r) {
                 return true;
             }
-            if (is_callable($r) && call_user_func($r, $host)) {
+            if (is_callable($r) && call_user_func($r, $hostname)) {
+                return true;
+            }
+            if (is_string($r) && $ipLong !== false && self::ipMaskCheck($r, $ipLong)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Если соответствует маске
+     * @param string $ipMask
+     * @param int $ipLong
+     * @return bool
+     */
+    public static function ipMaskCheck($ipMask, $ipLong)
+    {
+        if (strpos($ipMask, '/') !== false) {
+            // CIDR subnet
+            list($subnet, $mask) = explode('/', $ipMask);
+            $subnet = filter_var($subnet, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4);
+            if (!$subnet || !$mask) {
+                trigger_error("Invalid IP address: $ipMask");
+                return false;
+            }
+            $mask = (int) $mask;
+            $subnetLong = ip2long($subnet);
+            if ($subnetLong === false || $mask < 0 || $mask > 32) {
+                return false; // Invalid entry
+            }
+            $netMask = ~((1 << (32 - $mask)) - 1);
+            if (($ipLong & $netMask) == ($subnetLong & $netMask)) {
+                return true;
+            }
+        } else {
+            // Single IP
+            if (ip2long($ipMask) == $ipLong) {
                 return true;
             }
         }
@@ -849,5 +899,4 @@ class PHPWall
             $this->cache->setIpCache($r['ip'], $this->getBunTimeout($r), (int)$r['trust']);
         }
     }
-
 }
