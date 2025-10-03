@@ -349,7 +349,7 @@ class Db
      */
     public function getAllLogByIp($ip)
     {
-        return $this->selectAllSql(self::TABLE_LOG, ['ip=INET6_ATON("'.$ip.'")']);
+        return $this->selectAllSql(self::TABLE_LOG, ['ip=INET6_ATON("'.$ip.'")'], '*', ' order by id DESC LIMIT 100');
     }
 
     /**

@@ -81,12 +81,13 @@ class View
             $data = $this->conn->getAllLogByIp($ip);
             $rows = [];
             foreach ($data as $r) {
+                $tmp = str_replace(PHP_EOL, '<br/>', htmlspecialchars((string)$r['data']));
                 $rows[] = [
                     'id' => $r['id'],
                     'Date' => $r['create'],
                     'Try' => $r['try'],
                     'rule' => !empty(self::RULE_TYPE_MAP[$r['rule']]) ? self::RULE_TYPE_MAP[$r['rule']] : 'Unknown',
-                    'data' => htmlspecialchars((string)$r['data']),
+                    'data' => $tmp,
                 ];
             }
             $this->printTable($rows);

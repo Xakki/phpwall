@@ -234,7 +234,7 @@ class PHPWall
                 return; // View request was handled and exited
             }
 
-            if (substr($this->userIp, 0, 4) === '172.' || substr($this->userIp, 0, 4) === '127.') {
+            if ($this->isTrustIp($this->userIp)) {
                 return;
             }
 
@@ -451,7 +451,7 @@ class PHPWall
             if ($this->debug === 2) {
                 exit('Block by URL: ' . $rule . ': ' . $str);
             }
-            return $this->ruleApply(self::RULE_URL, $rule . ': ' . $str);
+            return $this->ruleApply(self::RULE_URL, $rule . PHP_EOL . $str);
         }
         return true;
     }
@@ -476,7 +476,7 @@ class PHPWall
             if ($this->debug === 2) {
                 exit('Block by UA: ' . $rule . ': ' . $str);
             }
-            return $this->ruleApply(self::RULE_UA, $rule . ': ' . $str);
+            return $this->ruleApply(self::RULE_UA, $rule . PHP_EOL . $str);
         }
 
         return true;
@@ -503,7 +503,7 @@ class PHPWall
                 if ($this->debug === 2) {
                     exit('Block by POST: ' . $rule . ': ' . $strValue);
                 }
-                return $this->ruleApply(self::RULE_POST, $rule . ': ' . $strValue);
+                return $this->ruleApply(self::RULE_POST, $rule . PHP_EOL . $strValue);
             }
         }
         return true;
