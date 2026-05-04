@@ -339,6 +339,9 @@ class PHPWall
     {
         if (!empty($_GET[$this->addToWhiteList])) {
             $this->setIpIsTrust($this->userIp, self::TRUST_WHITELIST);
+            http_response_code(200);
+            echo 'Success add IP: ' . $this->userIp . '<br>';
+            exit();
         }
 
         if (empty($_GET[$this->secretRequest])) {
