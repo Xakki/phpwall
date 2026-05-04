@@ -25,6 +25,7 @@ class PHPWall
     const TRUST_WHITE_LIST = 10; // If matched by trustHosts
     const TRUST_CAPTCHA = 1; // If passed the captcha
     const TRUST_CONTROL = 2; // If whitelisted from the panel
+    const TRUST_WHITELIST = 3; // If whitelisted from the panel
 
     const POST_WALL_NAME = 'unbunme';
     const KEY_CACHE_INIT = 'phpWallInit';
@@ -163,6 +164,8 @@ class PHPWall
     /** @var string */
     protected $secretRequest = 'CHANGE_ME';
     /** @var string */
+    protected $addToWhiteList = 'CHANGE_ME';
+    /** @var string */
     protected $googleCaptchaSiteKey = 'CHANGE_ME';
     /** @var string */
     protected $googleCaptchaSecretKey = 'CHANGE_ME';
@@ -267,7 +270,7 @@ class PHPWall
             }
         }
 
-        if ($this->dbPdo['password'] === 'CHANGE_ME' || $this->secretRequest === 'CHANGE_ME') {
+        if ($this->dbPdo['password'] === 'CHANGE_ME' || $this->secretRequest === 'CHANGE_ME' || $this->addToWhiteList === 'CHANGE_ME') {
             exit('CRITICAL: Please change the default value of `CHANGE_ME` to something more complicated.');
         }
     }
@@ -280,6 +283,7 @@ class PHPWall
         return [
             'wallTpl' => 'string',
             'cachePrefix' => 'string',
+            'addToWhiteList' => 'string',
             'secretRequest' => 'string',
             'secretRequestRemove' => 'string',
             'googleCaptchaSiteKey' => 'string',
@@ -333,6 +337,10 @@ class PHPWall
      */
     protected function handleViewRequest()
     {
+        if (!empty($_GET[$this->addToWhiteList])) {
+            $this->setIpIsTrust($this->userIp, self::TRUST_WHITELIST);
+        }
+
         if (empty($_GET[$this->secretRequest])) {
             return false;
         }

@@ -31,6 +31,7 @@ class View
         PHPWall::TRUST_DEFAULT => '-',
         PHPWall::TRUST_CAPTCHA => 'CAPTCHA',
         PHPWall::TRUST_CONTROL => 'Control',
+        PHPWall::TRUST_WHITELIST => 'WhiteList',
     ];
     /** @var PHPWall */
     private $owner;
